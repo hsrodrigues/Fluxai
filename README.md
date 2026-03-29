@@ -54,3 +54,47 @@ Siga as instruções abaixo para compilar e testar o app na sua máquina:
 1. **Clone o repositório:**
    ```bash
    git clone [https://github.com/SEU_USUARIO/fluxai.git](https://github.com/SEU_USUARIO/fluxai.git)
+
+   Configuração do Firebase:
+
+Crie um projeto no Firebase e adicione um aplicativo Android.
+
+Baixe o arquivo google-services.json e coloque-o dentro da pasta /app do projeto.
+
+Ative a autenticação pelo Google e crie um banco de dados no Firestore.
+
+Configuração da Chave da IA (Secrets):
+
+Na raiz do projeto (na mesma pasta do build.gradle.kts principal), localize ou crie um arquivo chamado local.properties.
+
+Adicione a sua chave do Gemini neste arquivo:
+
+Properties
+GEMINI_API_KEY=sua_chave_secreta_aqui
+Nota: O arquivo local.properties é ignorado pelo Git (via .gitignore) por questões de segurança, portanto, sua chave não será exposta.
+
+Sincronize e Rode:
+
+Clique em Sync Project with Gradle Files no Android Studio.
+
+Vá em Build > Rebuild Project para gerar as classes de configuração (BuildConfig).
+
+Execute o app no emulador ou dispositivo físico.
+
+🤝 Contribuindo
+Contribuições são muito bem-vindas! Se você tiver alguma ideia para melhorar o app:
+
+Faça um Fork do projeto
+
+Crie sua Feature Branch (git checkout -b feature/NovaFuncionalidade)
+
+Faça o Commit das suas mudanças (git commit -m 'Adicionando uma Nova Funcionalidade')
+
+Faça o Push para a Branch (git push origin feature/NovaFuncionalidade)
+
+Abra um Pull Request
+
+📄 Licença
+Distribuído sob a licença MIT. Veja LICENSE para mais informações.
+
+Desenvolvido com 💜 e Jetpack Compose por Seu Nome/Hudson.
