@@ -30,7 +30,6 @@ O **FluxAí** é um aplicativo Android nativo criado para simplificar o controle
 
 ## 📱 Telas do Aplicativo
 
-*(Adicione aqui os prints das telas do seu app. Exemplo de formato:)*
 <p float="left">
   <img src="https://github.com/user-attachments/assets/221d7f42-c0a4-4d4f-b095-a1056c6752e5" width="200" />
   <img src="https://github.com/user-attachments/assets/bdfcae17-2d5e-4f0b-b689-1eadfbffbc41" width="200" /> 
