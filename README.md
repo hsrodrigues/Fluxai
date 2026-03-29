@@ -57,26 +57,20 @@ Siga as instruções abaixo para compilar e testar o app na sua máquina:
    git clone [https://github.com/SEU_USUARIO/fluxai.git](https://github.com/SEU_USUARIO/fluxai.git)
 
 
- Configuração do Firebase:
+### 2. Configuração do Firebase
+* Crie um projeto no Firebase e adicione um aplicativo Android.
+* Baixe o arquivo `google-services.json` e coloque-o dentro da pasta `/app` do projeto.
+* Ative a autenticação pelo Google e crie um banco de dados no Firestore.
 
-Crie um projeto no Firebase e adicione um aplicativo Android.
+### 3. Configuração da Chave da IA (Secrets)
+* Na raiz do projeto (na mesma pasta do `build.gradle.kts` principal), localize ou crie um arquivo chamado `local.properties`.
+* Adicione a sua chave do Gemini neste arquivo:
+  ```properties
+  GEMINI_API_KEY=sua_chave_secreta_aqui
 
-Baixe o arquivo google-services.json e coloque-o dentro da pasta /app do projeto.
+  Nota: O arquivo local.properties é ignorado pelo Git (via .gitignore) por questões de segurança, portanto, sua chave não será exposta ao público.
 
-Ative a autenticação pelo Google e crie um banco de dados no Firestore.
-
-Configuração da Chave da IA (Secrets):
-
-Na raiz do projeto (na mesma pasta do build.gradle.kts principal), localize ou crie um arquivo chamado local.properties.
-
-Adicione a sua chave do Gemini neste arquivo:
-
-Properties
-GEMINI_API_KEY=sua_chave_secreta_aqui
-Nota: O arquivo local.properties é ignorado pelo Git (via .gitignore) por questões de segurança, portanto, sua chave não será exposta.
-
-Sincronize e Rode:
-
+4. Sincronize e Rode
 Clique em Sync Project with Gradle Files no Android Studio.
 
 Vá em Build > Rebuild Project para gerar as classes de configuração (BuildConfig).
@@ -99,4 +93,4 @@ Abra um Pull Request
 📄 Licença
 Distribuído sob a licença MIT. Veja LICENSE para mais informações.
 
-Desenvolvido com 💜 e Jetpack Compose por Seu Nome/Hudson.
+Desenvolvido com 💜 e Jetpack Compose por [Hudson](https://www.google.com/url?sa=E&source=gmail&q=https://github.com/hsrodrigues).
