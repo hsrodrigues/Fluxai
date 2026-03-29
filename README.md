@@ -51,10 +51,10 @@ Siga as instruções abaixo para compilar e testar o app na sua máquina:
 ### Passos de Instalação
 1. **Clone o repositório:**
    ```bash
-   git clone [https://github.com/hsrodrigues/fluxai.git](https://github.com/SEU_USUARIO/fluxai.git)
+   git clone [https://github.com/hsrodrigues/fluxai.git](https://github.com/hsrodrigues/fluxai.git)
 1. **Clone o repositório:**
    ```bash
-   git clone [https://github.com/SEU_USUARIO/fluxai.git](https://github.com/SEU_USUARIO/fluxai.git)
+   git clone [https://github.com/SEU_USUARIO/fluxai.git](https://github.com/hsrodrigues/fluxai.git)
 
 
 ### 2. Configuração do Firebase
