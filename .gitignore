@@ -1,15 +1,34 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
+# Configurações locais e chaves secretas (MUITO IMPORTANTE)
+local.properties
+app/google-services.json
+
+# Builds do Gradle e Android
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+**/build/
+captures/
 .externalNativeBuild
 .cxx
 local.properties
+
+# Arquivos do IntelliJ / Android Studio
+.idea/
+*.iml
+*.iws
+.gradle/
+build/
+
+# Arquivos de Sistema Operacional (Mac/Windows)
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs de teste
+*.log
+
+# Keystore (Chaves de assinatura do app - nunca suba isso se for publicar na Play Store)
+*.jks
+*.keystore
