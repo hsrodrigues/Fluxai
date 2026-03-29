@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "179005399064",
+    "project_id": "fluxai-adbdf",
+    "storage_bucket": "fluxai-adbdf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:179005399064:android:9ccb150c032b5a9c22e36d",
+        "android_client_info": {
+          "package_name": "fluxai.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "179005399064-0robl41srsse26n3otalqaauam2oh4nn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fluxai.app",
+            "certificate_hash": "77e00c8a9799694cef567c52eaa7373fd8d89ab4"
+          }
+        },
+        {
+          "client_id": "179005399064-v55jir7iced2e7p3509i339q9fb4mss8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC21oESazRU5OyrfLViMnYVa7mYsX5X2_E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "179005399064-v55jir7iced2e7p3509i339q9fb4mss8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
