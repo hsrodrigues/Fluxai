@@ -1,9 +1,34 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
     id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
 }
+
+// LÓGICA DE VERSÃO
+// LÓGICA DE VERSÃO
+val versionFile = file("version.properties")
+fun currentVersion(): Int {
+    val p = Properties()
+    var current = 1
+
+    // 1. Lê a versão atual do arquivo
+    if (versionFile.exists()) {
+        versionFile.inputStream().use { p.load(it) }
+        current = p.getProperty("VERSION_CODE", "1").toInt()
+    }
+
+    // 2. A MÁGICA QUE SUMIU: Soma +1 e salva de volta no arquivo!
+    val nextVersion = current + 1
+    p.setProperty("VERSION_CODE", nextVersion.toString())
+    versionFile.outputStream().use { p.store(it, "Versão atualizada automaticamente pelo Gradle") }
+
+    return current
+}
+val verCode = currentVersion()
 
 android {
     namespace = "fluxai.app"
@@ -13,27 +38,33 @@ android {
         applicationId = "fluxai.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = verCode
+        versionName = "1.0.$verCode"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        
-        buildConfigField("String", "GEMINI_API_KEY", "\"YOUR_API_KEY_HERE\"")
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            // R8: ofusca o código e remove o que não é usado (dificulta extrair chaves e reduz o APK)
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // Mesma chave dos builds de debug: instala por cima das versões já distribuídas sem apagar dados
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17 // O erro fatal do "VERSION_1" estava aqui
     }
+
+    // Padrão correto e moderno para alinhar o Kotlin com o Java 17
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -42,15 +73,36 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.foundation)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.compose.foundation)
+
+    // Firebase e IA
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.functions)
+
+    // Navegação e Utilidades
+    implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.compose.animation.core.lint)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.google.googleid)
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("com.google.firebase:firebase-messaging-ktx")
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.glance:glance-appwidget:1.1.0")
+    implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Testes
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -59,14 +111,10 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.firestore)
+}
 
-    // Credenciais do Google (Moderno)
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services.auth)
-    implementation(libs.googleid)
-    implementation("com.google.ai.client.generativeai:generativeai:0.7.0")
-    implementation("androidx.navigation:navigation-compose:2.7.7")
+// As chaves de IA ficam só no servidor (Cloud Function groqChat). Não deixa o plugin embuti-las no BuildConfig/APK.
+secrets {
+    ignoreList.add("GROQ_API_KEY_.*")
+    ignoreList.add("GEMINI_API_KEY")
 }

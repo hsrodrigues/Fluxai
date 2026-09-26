@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() { return request.auth != null; }
+    function ehDono(uid) { return logado() && request.auth.uid == uid; }
+    // Membro da conta conjunta: registrado em usuarios/{dono}/membros/{uid} por meio de um convite
+    function ehMembro(uid) {
+      return logado() && exists(/databases/$(database)/documents/usuarios/$(uid)/membros/$(request.auth.uid));
+    }
+    function convite(codigo) { return get(/databases/$(database)/documents/convites/$(codigo)).data; }
+
+    // 1. CONFIGURAÇÕES GLOBAIS (versão, link de atualização)
+    match /app_config/{document=**} {
+      allow read: if logado();
+      allow write: if logado() && request.auth.token.email == 'hsrodrigues01@gmail.com';
+    }
+
+    // 2. CONVITES DA CONTA CONJUNTA
+    // Busca só pelo código (get); listar convites não é permitido
+    match /convites/{codigo} {
+      allow get: if logado();
+      allow create: if logado()
+        && request.resource.data.dono == request.auth.uid
+        && request.resource.data.expiraEm is timestamp
+        && request.resource.data.expiraEm <= request.time + duration.value(2, 'd');
+      allow delete: if logado() && resource.data.dono == request.auth.uid;
+    }
+
+    // 3. DOCUMENTO RAIZ DO USUÁRIO
+    match /usuarios/{userId} {
+      allow read, write: if ehDono(userId) || ehMembro(userId);
+    }
+
+    // 4. MEMBROS: o próprio parceiro entra com um convite válido do dono; dono ou membro podem remover
+    match /usuarios/{userId}/membros/{membroId} {
+      allow read: if ehDono(userId) || (logado() && request.auth.uid == membroId);
+      allow delete: if ehDono(userId) || (logado() && request.auth.uid == membroId);
+      allow create: if logado()
+        && request.auth.uid == membroId
+        && membroId != userId
+        && convite(request.resource.data.codigo).dono == userId
+        && convite(request.resource.data.codigo).expiraEm > request.time;
+    }
+
+    // 5. DADOS DO USUÁRIO (lançamentos, saldos, cartões...): dono ou membros
+    // A coleção "membros" fica de fora para um membro não conseguir adicionar outras pessoas
+    match /usuarios/{userId}/{colecao}/{document=**} {
+      allow read, write: if colecao != 'membros' && (ehDono(userId) || ehMembro(userId));
+    }
+  }
+}

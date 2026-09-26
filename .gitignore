@@ -32,3 +32,6 @@ Desktop.ini
 # Keystore (Chaves de assinatura do app - nunca suba isso se for publicar na Play Store)
 *.jks
 *.keystore
+
+# Cloud Functions
+functions/node_modules/

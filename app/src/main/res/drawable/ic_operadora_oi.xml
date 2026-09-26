@@ -1,0 +1,49 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="56dp"
+    android:height="48dp"
+    android:viewportWidth="500"
+    android:viewportHeight="429">
+    <path
+        android:pathData="M0 206.71C0 345.3 119.22 428.79 264.88 428.79 398 428.79 500 333.91 500 257.17c0-72-46.05-106.72-105.75-145.64C340.58 76.54 299.61 0.22 189.22 0.22 65.2 0.22 0 111.77 0 206.71z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="379.38"
+                android:startY="80.95"
+                android:endX="83.2"
+                android:endY="377.12">
+                <item
+                    android:color="#FF009E0B"
+                    android:offset="0"/>
+                <item
+                    android:color="#FF04A00B"
+                    android:offset="0.12"/>
+                <item
+                    android:color="#FF11A40A"
+                    android:offset="0.25"/>
+                <item
+                    android:color="#FF25AC09"
+                    android:offset="0.37"/>
+                <item
+                    android:color="#FF43B708"
+                    android:offset="0.5"/>
+                <item
+                    android:color="#FF68C607"
+                    android:offset="0.63"/>
+                <item
+                    android:color="#FF96D705"
+                    android:offset="0.76"/>
+                <item
+                    android:color="#FFCBEB02"
+                    android:offset="0.89"/>
+                <item
+                    android:color="#FFFFFF00"
+                    android:offset="1"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M333.66 155.74c14.21 0 25.67-11.51 25.67-25.7 0-14.15-11.46-25.65-25.67-25.65-14.15 0-25.63 11.5-25.63 25.65 0 14.19 11.47 25.7 25.63 25.7z m0.33 19.02c-14.42 0-26.17 34.33-26.17 76.66 0 42.35 11.75 76.66 26.17 76.66 14.44 0 26.13-34.31 26.13-76.66 0-42.33-11.7-76.66-26.13-76.66z m-116.58-0.09c-42.99 0-71.57 34.03-71.57 76.67 0 42.7 28.58 76.68 71.57 76.68 42.87 0 71.43-33.97 71.43-76.68 0-42.64-28.56-76.67-71.43-76.67z m0 117.21c-19.72 0-30.63-20.24-30.63-40.78 0-20.51 10.91-40.2 30.63-40.2 19.64 0 30.53 19.7 30.53 40.2 0 20.53-10.89 40.78-30.53 40.78z"/>
+</vector>

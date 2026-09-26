@@ -19,3 +19,5 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Glance instancia os callbacks do widget pelo nome da classe
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }

@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <cache-path name="my_cache" path="reports/" />
+    <external-path name="external_files" path="." />
+    <download-path name="my_downloads" path="." />
+
+    <external-files-path name="my_images" path="Pictures" />
+    <cache-path name="my_cache" path="." />
+    <files-path name="my_internal_files" path="." />
 </paths>

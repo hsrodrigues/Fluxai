@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Fluxai</string>
+    <string name="widget_descricao">Sobra do mês, quanto pode gastar por dia e próximas contas</string>
 </resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash do sistema (Android 12+) com o mesmo fundo escuro da splash do app, sem piscar branco -->
+    <style name="Theme.Fluxai" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@color/ic_launcher_background</item>
+    </style>
+</resources>

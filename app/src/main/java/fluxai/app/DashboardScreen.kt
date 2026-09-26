@@ -1,437 +1,1789 @@
 package fluxai.app
 
+import com.google.firebase.firestore.ListenerRegistration
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.ai.client.generativeai.GenerativeModel
+import androidx.compose.ui.zIndex
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.firestore
+import fluxai.app.ui.theme.LocalAccentColor
+import fluxai.app.ui.theme.LocalDarkTheme
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.core.net.toUri
 
+@SuppressLint("AutoboxingStateCreation")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     onLogout: () -> Unit,
+    onAbrirDashboard: () -> Unit,
+    onAbrirLancamento: () -> Unit,
     onAbrirAnalytics: () -> Unit,
-    onAbrirLancamento: () -> Unit
+    onAbrirSettings: () -> Unit,
+    onAbrirSobre: () -> Unit,
+    onAbrirManutencao: () -> Unit,
+    onAbrirCartoes: () -> Unit,
+    onAbrirCaixinhas: () -> Unit,
+    onAbrirAssinaturas: () -> Unit,
+    onAbrirCelular: () -> Unit
 ) {
     val context = LocalContext.current
-    val usuario = Firebase.auth.currentUser
-    val banco = Firebase.firestore
-    val coroutineScope = rememberCoroutineScope()
+    val user = Firebase.auth.currentUser
+    val isDark = LocalDarkTheme.current
+    val colorBg = if (isDark) Color(0xFF0F0F0F) else Color(0xFFF4F7FA)
+    val colorAccent = LocalAccentColor.current
 
+    if (user == null) {
+        Box(modifier = Modifier.fillMaxSize().background(colorBg), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = colorAccent)
+        }
+        LaunchedEffect(Unit) { onLogout() }
+        return
+    }
+
+    val sharedPref = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+    val workspaceUid = sharedPref.getString("workspace_uid", user.uid) ?: user.uid
+
+    val banco = Firebase.firestore
+    // Ajusta a fatura do cartão no servidor quando um lançamento de cartão ainda não pago muda de valor ou é excluído
+    fun ajustarFatura(despesa: Despesa, delta: Double) {
+        val cartaoId = despesa.cartaoId
+        if (cartaoId.isNullOrBlank() || cartaoId == "Saldo Conta" || despesa.status == "Pago" || delta == 0.0) return
+        banco.collection("usuarios").document(workspaceUid).collection("cartoes").document(cartaoId)
+            .update("faturaAtual", com.google.firebase.firestore.FieldValue.increment(delta))
+    }
+    val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val localeBR = remember { Locale("pt", "BR") }
+
+    val colorSurface = if (isDark) Color(0xFF1A1A1A) else Color.White
+    val colorTextPrimary = if (isDark) Color.White else Color(0xFF1A1A1A)
+    val colorTextSecondary = Color(0xFF9CA3AF)
+    val colorDivider = if (isDark) Color(0xFF2C2C2C) else Color(0xFFE5E7EB)
+    val moeda = remember { java.text.NumberFormat.getCurrencyInstance(localeBR) }
+    val coresCampo = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = colorAccent, unfocusedBorderColor = colorDivider, focusedTextColor = colorTextPrimary, unfocusedTextColor = colorTextPrimary,
+        focusedContainerColor = colorSurface, unfocusedContainerColor = colorSurface, cursorColor = colorAccent
+    )
 
     var calendar by remember { mutableStateOf(Calendar.getInstance()) }
-    var mesAnoSelecionado by remember { mutableStateOf(SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(calendar.time)) }
-    var mesNome by remember { mutableStateOf(SimpleDateFormat("MMMM yyyy", Locale("pt", "BR")).format(calendar.time).replaceFirstChar { it.uppercase() }) }
+    var mesAnoSelecionado by remember { mutableStateOf(SimpleDateFormat("MM/yyyy", localeBR).format(calendar.time)) }
+    var mesNome by remember { mutableStateOf(SimpleDateFormat("MMMM yyyy", localeBR).format(calendar.time).replaceFirstChar { it.uppercase() }) }
     var categoriaSelecionada by remember { mutableStateOf("Todas") }
 
-    var saldoString by remember { mutableStateOf("") }
+    // Estado da barra de pesquisa
+    var textoPesquisa by remember { mutableStateOf("") }
+
+    var adiantamentoString by remember { mutableStateOf("") }
+    var pagamentoString by remember { mutableStateOf("") }
+    var extraString by remember { mutableStateOf("") }
+    var editandoSaldo by remember { mutableStateOf(false) }
+
     var despesasRaw by remember { mutableStateOf<List<Despesa>>(emptyList()) }
 
+    var updateUrl by remember { mutableStateOf("") }
+    var vServidorState by remember { mutableLongStateOf(0L) }
+    var mostrarUpdateDialog by remember { mutableStateOf(false) }
     var mostrarDialogCalendario by remember { mutableStateOf(false) }
+    var mostrarDialogEmprestimo by remember { mutableStateOf(false) }
+
     var despesaParaExcluir by remember { mutableStateOf<Despesa?>(null) }
     var despesaParaEditar by remember { mutableStateOf<Despesa?>(null) }
-    var mostrarDialogImportar by remember { mutableStateOf(false) }
-    var mesOrigemImportacao by remember { mutableStateOf("") }
+    var despesaParaPagarCartao by remember { mutableStateOf<Despesa?>(null) }
+
     var mostrarDialogIA by remember { mutableStateOf(false) }
     var respostaIA by remember { mutableStateOf("") }
     var carregandoIA by remember { mutableStateOf(false) }
+    var contextoIA by remember { mutableStateOf("") } // dados do mês usados também no chat
 
-    // Cores do Tema Clean
-    val colorAccent = Color(0xFF7E57C2)
-    val colorBg = Color(0xFFF8F9FA)
-    val colorSurface = Color.White
-    val colorTextPrimary = Color(0xFF1E1E1E)
-    val colorTextSecondary = Color(0xFF6B7280)
-    val colorDarkBg = Color(0xFF1E1E1E)
+    var categoriesCustomList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var categoriasCustomList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var cartoesVisuais by remember { mutableStateOf<Map<String, Pair<String, String>>>(emptyMap()) } // id -> (nome, bandeira)
 
-    LaunchedEffect(mesAnoSelecionado) {
-        if (usuario != null) {
-            banco.collection("usuarios").document(usuario.uid)
-                .collection("saldos").document(mesAnoSelecionado.replace("/", "-"))
-                .get().addOnSuccessListener { doc ->
-                    saldoString = if (doc.exists()) (doc.getDouble("valor") ?: 0.0).toString() else ""
-                }
-
-            banco.collection("usuarios").document(usuario.uid).collection("despesas")
-                .whereEqualTo("mesAno", mesAnoSelecionado)
-                .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null) {
-                        despesasRaw = snapshot.documents.map { doc ->
-                            Despesa(
-                                id = doc.id,
-                                descricao = doc.getString("descricao") ?: "",
-                                valor = doc.getDouble("valor") ?: 0.0,
-                                tipo = doc.getString("tipo") ?: "",
-                                categoria = doc.getString("categoria") ?: "Outros",
-                                status = doc.getString("status") ?: "A pagar",
-                                observacao = doc.getString("observacao") ?: "",
-                                diaVencimento = doc.getLong("diaVencimento")?.toInt() ?: 0
-                            )
+    DisposableEffect(workspaceUid) {
+        val ouvintes = mutableListOf<ListenerRegistration>()
+        if (workspaceUid.isNotEmpty()) {
+            ouvintes += banco.collection("usuarios").document(workspaceUid).collection("categorias_custom")
+                .addSnapshotListener { snap, _ ->
+                    if (snap != null) {
+                        categoriasCustomList = snap.documents.mapNotNull { d ->
+                            try { d.getString("nome") } catch (e: Exception) { null }
                         }
+                        atualizarIconesCustom(snap)
+                    }
+                }
+            // Só para exibição: nome e bandeira de cada cartão, usados no ícone dos lançamentos
+            ouvintes += banco.collection("usuarios").document(workspaceUid).collection("cartoes")
+                .addSnapshotListener { snap, _ ->
+                    if (snap != null) {
+                        cartoesVisuais = snap.documents.associate { d -> d.id to ((d.getString("nome") ?: "") to (d.getString("bandeira") ?: "")) }
                     }
                 }
         }
+        // Desliga os ouvintes ao sair da tela ou trocar a chave (ex.: mês), senão eles se acumulam
+        onDispose { ouvintes.forEach { it.remove() } }
     }
 
-    val despesasFiltradas = if (categoriaSelecionada == "Todas") despesasRaw else despesasRaw.filter { it.categoria == categoriaSelecionada }
-    val ordenadas = despesasFiltradas.sortedWith(compareBy({ it.status == "Pago" }, { it.diaVencimento }))
+    val formatador = remember {
+        java.text.NumberFormat.getNumberInstance(Locale("pt", "BR")).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
+        }
+    }
 
-    val saldoRenda = saldoString.replace(",", ".").toDoubleOrNull() ?: 0.0
-    val totalAPagar = despesasRaw.filter { it.status == "A pagar" }.sumOf { it.valor }
-    val totalPago = despesasRaw.filter { it.status == "Pago" }.sumOf { it.valor }
-    val sobra = saldoRenda - totalAPagar - totalPago
+    fun atualizarData() {
+        mesAnoSelecionado = SimpleDateFormat("MM/yyyy", localeBR).format(calendar.time)
+        mesNome = SimpleDateFormat("MMMM yyyy", localeBR).format(calendar.time).replaceFirstChar { it.uppercase() }
+    }
+
+    DisposableEffect(Unit) {
+        val ouvintes = mutableListOf<ListenerRegistration>()
+        try {
+            ouvintes += banco.collection("app_config").document("atualizacao").addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    val vServidor = snapshot.getLong("versao") ?: 0L
+                    val url = snapshot.getString("link") ?: ""
+                    val vAtual = BuildConfig.VERSION_CODE.toLong()
+
+                    if (vServidor > vAtual && url.isNotEmpty()) {
+                        vServidorState = vServidor
+                        updateUrl = url
+                        mostrarUpdateDialog = true
+                    }
+                }
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+        // Desliga os ouvintes ao sair da tela ou trocar a chave (ex.: mês), senão eles se acumulam
+        onDispose { ouvintes.forEach { it.remove() } }
+    }
+
+    DisposableEffect(mesAnoSelecionado, workspaceUid) {
+        val ouvintes = mutableListOf<ListenerRegistration>()
+        ouvintes += banco.collection("usuarios").document(workspaceUid).collection("saldos").document(mesAnoSelecionado.replace("/", "-")).addSnapshotListener { doc, _ ->
+            if (doc != null && doc.exists()) {
+                val ad = doc.getDouble("adiantamento") ?: 0.0
+                val pg = doc.getDouble("pagamento") ?: doc.getDouble("valor") ?: 0.0
+                val ex = doc.getDouble("extra") ?: 0.0
+
+                adiantamentoString = formatador.format(ad)
+                pagamentoString = formatador.format(pg)
+                extraString = formatador.format(ex)
+                editandoSaldo = false
+            } else {
+                adiantamentoString = "0,00"
+                pagamentoString = "0,00"
+                extraString = "0,00"
+                editandoSaldo = true
+            }
+        }
+
+        ouvintes += banco.collection("usuarios").document(workspaceUid).collection("despesas").whereEqualTo("mesAno", mesAnoSelecionado).addSnapshotListener { snap, _ ->
+            if (snap != null) {
+                despesasRaw = snap.documents.sortedBy { it.getLong("ordem") ?: 9999L }.mapNotNull { d ->
+                    try {
+                        Despesa(
+                            id = d.id,
+                            descricao = d.getString("descricao") ?: "",
+                            valor = d.getDouble("valor") ?: 0.0,
+                            tipo = d.getString("tipo") ?: "Variável",
+                            categoria = d.getString("categoria") ?: "Outros",
+                            status = d.getString("status") ?: "A pagar",
+                            observacao = d.getString("observacao") ?: "",
+                            diaVencimento = d.getLong("diaVencimento")?.toInt() ?: 0,
+                            frequencia = d.getString("frequencia") ?: "Mensal",
+                            mesAno = d.getString("mesAno") ?: "",
+                            cartaoId = d.getString("cartaoId"),
+                            projetoId = d.getString("projetoId")
+                        )
+                    } catch (e: Exception) { null }
+                }
+            }
+        }
+        // Desliga os ouvintes ao sair da tela ou trocar a chave (ex.: mês), senão eles se acumulam
+        onDispose { ouvintes.forEach { it.remove() } }
+    }
+
+    // Variáveis restauradas corretamente
+    val valAdiantamento = adiantamentoString.paraValor() ?: 0.0
+    val valPagamento = pagamentoString.paraValor() ?: 0.0
+    val valExtra = extraString.paraValor() ?: 0.0
+
+    val totalRenda = valAdiantamento + valPagamento + valExtra
+
+    // Totais só são recalculados quando a lista de despesas muda (não a cada redesenho da tela)
+    val (totalDespesasQ1, totalDespesasQ2, totalAPagar, totalPago) = remember(despesasRaw) {
+        val doMes = despesasRaw.filter { it.projetoId == null && it.status != "Próximo Mês" }
+        val (q1, q2) = doMes.partition { it.frequencia.equals("Quinzenal", ignoreCase = true) }
+        listOf(
+            q1.sumOf { it.valor },
+            q2.sumOf { it.valor },
+            despesasRaw.filter { it.status == "A pagar" && it.projetoId == null }.sumOf { it.valor },
+            despesasRaw.filter { it.status == "Pago" && it.projetoId == null }.sumOf { it.valor }
+        )
+    }
+    val totalDespesasGeral = totalDespesasQ1 + totalDespesasQ2
+
+    // CORREÇÃO LOGÍSTICA: Sobra da quinzena não acumula no orçamento mensal final para evitar somas incorretas
+    val sobraQ1 = valAdiantamento + valExtra - totalDespesasQ1
+    val sobraFinal = valPagamento - totalDespesasQ2
+
+    // Filtro Restaurado com a Busca
+    // Só refiltra quando a lista, a categoria ou a busca mudam (não a cada redesenho)
+    val ordenadas = remember(despesasRaw, categoriaSelecionada, textoPesquisa) {
+        despesasRaw.filter {
+            (categoriaSelecionada == "Todas" || it.categoria == categoriaSelecionada) &&
+                    (it.descricao.contains(textoPesquisa, ignoreCase = true))
+        }
+    }
+
+    val despesasMutaveis = remember { androidx.compose.runtime.mutableStateListOf<Despesa>() }
+    var draggedId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(ordenadas) {
+        if (draggedId == null) {
+            despesasMutaveis.clear()
+            despesasMutaveis.addAll(ordenadas)
+        }
+    }
+
+    val mesAtualStr = remember { SimpleDateFormat("MM/yyyy", localeBR).format(Date()) }
+
+    // Contas recorrentes: despesas do mês anterior que ainda não estão no mês aberto
+    var despesasMesAnterior by remember { mutableStateOf<List<Despesa>>(emptyList()) }
+    var mostrarRecorrencia by remember { mutableStateOf(false) }
+    var recorrenciaDispensada by remember(mesAnoSelecionado) { mutableStateOf(sharedPref.getBoolean("recorrencia_dispensada_$mesAnoSelecionado", false)) }
+    LaunchedEffect(mesAnoSelecionado, workspaceUid) {
+        despesasMesAnterior = emptyList()
+        banco.collection("usuarios").document(workspaceUid).collection("despesas")
+            .whereEqualTo("mesAno", mesAnterior(mesAnoSelecionado)).get()
+            .addOnSuccessListener { snap -> despesasMesAnterior = snap.documents.map { lerDespesa(it) } }
+    }
+    val candidatasRecorrentes = remember(despesasMesAnterior, despesasRaw) { candidatasRecorrencia(despesasMesAnterior, despesasRaw) }
+
+    // A projeção só faz sentido no mês corrente
+    val mostrarPrevisao = mesAnoSelecionado == mesAtualStr
+    val previsao = remember(despesasRaw, sobraFinal, totalRenda, mostrarPrevisao) {
+        if (mostrarPrevisao) calcularPrevisao(despesasRaw, sobraFinal, totalRenda) else null
+    }
+
+    // Widget: atualiza só com o mês corrente aberto (navegar por meses antigos não deve sobrescrever)
+    LaunchedEffect(previsao, totalPago, totalDespesasGeral) {
+        val p = previsao ?: return@LaunchedEffect
+        // Contas pendentes: vencidas primeiro, depois as próximas a vencer
+        val contasWidget = despesasRaw
+            .filter { it.status == "A pagar" && it.projetoId == null && it.diaVencimento > 0 }
+            .sortedWith(compareBy({ it.diaVencimento >= p.diaHoje }, { it.diaVencimento }))
+            .take(3)
+            .map { ContaWidget(it.descricao, it.valor, it.diaVencimento, vencida = it.diaVencimento < p.diaHoje) }
+        salvarDadosWidget(
+            context, mes = mesNome.substringBefore(" "), sobra = sobraFinal, aPagar = totalAPagar, pago = totalPago,
+            renda = totalRenda, despesas = totalDespesasGeral, limiteDiario = p.limiteDiario, nivel = p.nivel, contas = contasWidget
+        )
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet(modifier = Modifier.width(280.dp), drawerContainerColor = colorSurface) {
-                Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(colorBg), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(modifier = Modifier.size(90.dp).background(colorDarkBg, CircleShape), contentAlignment = Alignment.Center) {
-                            Image(painter = painterResource(id = R.drawable.logo_app), contentDescription = "Logo FluxAí", modifier = Modifier.size(60.dp).clip(CircleShape))
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("FLUXAÍ", color = colorAccent, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                    }
-                }
-
-                HorizontalDivider(color = Color(0xFFE5E7EB))
-                Spacer(modifier = Modifier.height(12.dp))
-
-                NavigationDrawerItem(label = { Text("Meu Dashboard", fontWeight = FontWeight.Medium) }, selected = true, icon = { Icon(Icons.Default.Dashboard, null) }, colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = colorAccent.copy(alpha = 0.1f), selectedIconColor = colorAccent, selectedTextColor = colorAccent), onClick = { coroutineScope.launch { drawerState.close() } }, modifier = Modifier.padding(horizontal = 12.dp))
-                Spacer(modifier = Modifier.height(8.dp))
-                NavigationDrawerItem(label = { Text("Novo Lançamento", fontWeight = FontWeight.Medium) }, selected = false, icon = { Icon(Icons.Default.AddCircle, null, tint = colorTextSecondary) }, onClick = { coroutineScope.launch { drawerState.close() }; onAbrirLancamento() }, modifier = Modifier.padding(horizontal = 12.dp))
-                Spacer(modifier = Modifier.height(8.dp))
-                NavigationDrawerItem(label = { Text("Análise BI", fontWeight = FontWeight.Medium) }, selected = false, icon = { Icon(Icons.Default.PieChart, null, tint = colorTextSecondary) }, onClick = { coroutineScope.launch { drawerState.close() }; onAbrirAnalytics() }, modifier = Modifier.padding(horizontal = 12.dp))
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                NavigationDrawerItem(label = { Text("Sair da Conta", fontWeight = FontWeight.Medium) }, selected = false, icon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) }, colors = NavigationDrawerItemDefaults.colors(unselectedIconColor = Color(0xFFEF5350), unselectedTextColor = Color(0xFFEF5350)), onClick = { coroutineScope.launch { drawerState.close(); Firebase.auth.signOut(); onLogout() } }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp))
-            }
+            MenuLateral(
+                drawerState = drawerState,
+                coroutineScope = coroutineScope,
+                rotaAtual = "dashboard",
+                onAbrirDashboard = { coroutineScope.launch { drawerState.close() } },
+                onAbrirLancamento = onAbrirLancamento,
+                onAbrirAnalytics = onAbrirAnalytics,
+                onAbrirSettings = onAbrirSettings,
+                onAbrirSobre = onAbrirSobre,
+                onAbrirManutencao = onAbrirManutencao,
+                onLogout = onLogout,
+                onAbrirCartoes = onAbrirCartoes,
+                onAbrirCaixinhas = onAbrirCaixinhas,
+                onAbrirAssinaturas = onAbrirAssinaturas,
+                onAbrirCelular = onAbrirCelular
+            )
         }
     ) {
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
                     title = {
-                        // LOGO REMOVIDA DE ACORDO COM O SEU PEDIDO
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { mostrarDialogCalendario = true }.padding(8.dp)) {
-                            Text(mesNome, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorTextPrimary)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Selecionar Mês", tint = colorTextPrimary)
+                        Surface(onClick = { mostrarDialogCalendario = true }, shape = RoundedCornerShape(50), color = colorAccent.copy(alpha = 0.1f)) {
+                            Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(mesNome, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colorAccent)
+                                Icon(Icons.Default.ArrowDropDown, null, tint = colorAccent)
+                            }
                         }
                     },
-                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, null, tint = colorTextPrimary) } },
+                    navigationIcon = {
+                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, null, tint = colorTextPrimary)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { exportarDespesasParaCSV(context, despesasRaw, mesAnoSelecionado) }) {
+                            Icon(Icons.Default.FileDownload, "Backup", tint = colorAccent)
+                        }
+                    },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = colorBg)
                 )
             },
             containerColor = colorBg
         ) { padding ->
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
 
                 item {
-                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = colorSurface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            OutlinedTextField(
-                                value = saldoString, onValueChange = { saldoString = it }, label = { Text("Minha Renda Mensal", color = colorTextSecondary) }, modifier = Modifier.fillMaxWidth(),
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        if (usuario != null) {
-                                            val v = saldoString.replace(",", ".").toDoubleOrNull() ?: 0.0
-                                            banco.collection("usuarios").document(usuario.uid).collection("saldos").document(mesAnoSelecionado.replace("/", "-")).set(mapOf("valor" to v))
-                                            Toast.makeText(context, "Renda salva!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }) { Icon(Icons.Default.Save, null, tint = colorAccent) }
-                                },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = colorAccent, unfocusedBorderColor = Color(0xFFE5E7EB)), singleLine = true
-                            )
+                    Surface(shape = RoundedCornerShape(20.dp), color = colorSurface, border = BorderStroke(1.dp, colorDivider), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                        Column(modifier = Modifier.padding(18.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Renda projetada", fontSize = 12.sp, color = colorTextSecondary)
+                                    Text(moeda.format(totalRenda), fontSize = 30.sp, fontWeight = FontWeight.Black, color = colorTextPrimary, maxLines = 1)
+                                }
 
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Row(verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(36.dp).background(Color(0xFFFFF3E0), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.MoneyOff, null, tint = Color(0xFFF57C00), modifier = Modifier.size(18.dp)) }; Spacer(modifier = Modifier.width(8.dp)); Column { Text("A Pagar", fontSize = 12.sp, color = colorTextSecondary); Text("R$ %.2f".format(totalAPagar), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colorTextPrimary) } }
-                                Row(verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(36.dp).background(Color(0xFFE8F5E9), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(18.dp)) }; Spacer(modifier = Modifier.width(8.dp)); Column { Text("Pago", fontSize = 12.sp, color = colorTextSecondary); Text("R$ %.2f".format(totalPago), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colorTextPrimary) } }
+                                FilledTonalIconButton(
+                                    onClick = { mostrarDialogEmprestimo = true },
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xFF43A047).copy(alpha = 0.12f), contentColor = Color(0xFF43A047))
+                                ) { Icon(Icons.Default.AccountBalance, "Pegar empréstimo") }
+
+                                FilledTonalIconButton(
+                                    onClick = {
+                                        if (editandoSaldo) {
+                                            val ad = adiantamentoString.paraValor() ?: 0.0
+                                            val pg = pagamentoString.paraValor() ?: 0.0
+                                            val ex = extraString.paraValor() ?: 0.0
+                                            banco.collection("usuarios").document(workspaceUid).collection("saldos").document(mesAnoSelecionado.replace("/", "-"))
+                                                .set(mapOf("adiantamento" to ad, "pagamento" to pg, "extra" to ex, "valor" to (ad + pg + ex))).addOnSuccessListener { editandoSaldo = false }
+                                        } else { editandoSaldo = true }
+                                    },
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = colorAccent.copy(alpha = 0.12f), contentColor = colorAccent)
+                                ) { Icon(if (editandoSaldo) Icons.Default.Save else Icons.Default.Edit, if (editandoSaldo) "Salvar renda" else "Editar renda") }
                             }
 
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFF3F4F6))
+                            if (editandoSaldo) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = adiantamentoString, onValueChange = { if (it.all { char -> char.isDigit() || char == ',' || char == '.' }) adiantamentoString = it },
+                                        label = { Text("Vale / adiantamento (até dia 15)") }, prefix = { Text("R$ ") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.fillMaxWidth(), colors = coresCampo, shape = FormatoCampo, singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = pagamentoString, onValueChange = { if (it.all { char -> char.isDigit() || char == ',' || char == '.' }) pagamentoString = it },
+                                        label = { Text("Salário (a partir do dia 16)") }, prefix = { Text("R$ ") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.fillMaxWidth(), colors = coresCampo, shape = FormatoCampo, singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = extraString, onValueChange = { if (it.all { char -> char.isDigit() || char == ',' || char == '.' }) extraString = it },
+                                        label = { Text("Renda extra / empréstimos") }, prefix = { Text("R$ ") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.fillMaxWidth(), colors = coresCampo, shape = FormatoCampo, singleLine = true
+                                    )
+                                }
+                            }
 
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text("Sobra Atual", fontWeight = FontWeight.Medium, color = colorTextSecondary, fontSize = 14.sp)
-                                Text("R$ %.2f".format(sobra), fontSize = 24.sp, fontWeight = FontWeight.Black, color = if(sobra >= 0) Color(0xFF4CAF50) else Color(0xFFEF5350))
+                            // Resumo do mês
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                EstatisticaResumo(moeda.format(totalAPagar), "a pagar", Color(0xFFFB8C00), Modifier.weight(1f))
+                                EstatisticaResumo(moeda.format(totalPago), "pago", Color(0xFF43A047), Modifier.weight(1f))
+                                EstatisticaResumo(moeda.format(sobraFinal), "sobra final", if (sobraFinal >= 0) Color(0xFF1E88E5) else Color(0xFFE53935), Modifier.weight(1f))
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            BlocoQuinzena(
+                                titulo = "1ª quinzena", subtitulo = "despesas quinzenais",
+                                rotuloEntradas = "Vale + extra", entradas = valAdiantamento + valExtra, gastos = totalDespesasQ1,
+                                rotuloSobra = "Sobra", sobra = sobraQ1, corSobra = if (sobraQ1 >= 0) Color(0xFF43A047) else Color(0xFFE53935),
+                                moeda = moeda, corFundo = colorBg, corTexto = colorTextPrimary, corTextoFraco = colorTextSecondary, corAcento = colorAccent
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            BlocoQuinzena(
+                                titulo = "2ª quinzena", subtitulo = "demais despesas",
+                                rotuloEntradas = "Salário", entradas = valPagamento, gastos = totalDespesasQ2,
+                                rotuloSobra = "Sobra final", sobra = sobraFinal, corSobra = if (sobraFinal >= 0) Color(0xFF1E88E5) else Color(0xFFE53935),
+                                moeda = moeda, corFundo = colorBg, corTexto = colorTextPrimary, corTextoFraco = colorTextSecondary, corAcento = colorAccent
+                            )
+                        }
+                    }
+                }
+
+                if (previsao != null) {
+                    item { CardAnalisePreditiva(previsao, isDark) }
+                }
+
+                if (candidatasRecorrentes.isNotEmpty() && !recorrenciaDispensada) {
+                    item {
+                        val nomeMesAnterior = remember(mesAnoSelecionado) {
+                            val (m, a) = mesAnterior(mesAnoSelecionado).split("/").map { it.toInt() }
+                            SimpleDateFormat("MMMM", localeBR).format(Calendar.getInstance().apply { set(a, m - 1, 1) }.time)
+                        }
+                        AvisoRecorrencia(
+                            qtd = candidatasRecorrentes.size, total = candidatasRecorrentes.sumOf { it.valor }, mesOrigem = nomeMesAnterior,
+                            cor = colorAccent, corSuperficie = colorSurface, corTexto = colorTextPrimary, corTextoFraco = colorTextSecondary,
+                            onAbrir = { mostrarRecorrencia = true },
+                            onDispensar = {
+                                recorrenciaDispensada = true
+                                sharedPref.edit().putBoolean("recorrencia_dispensada_$mesAnoSelecionado", true).apply()
+                            }
+                        )
+                    }
+                }
+
+                // === INJETADO: Cotações e Mercado (AwesomeAPI) ===
+                item {
+                    CotacoesWidget()
+                }
+
+                // === INJETADO: Alerta de Feriados Bancários (Brasil API) ===
+                item {
+                    AlertaFeriadosWidget(despesas = despesasMutaveis, mesAnoSelecionado = mesAnoSelecionado)
+                }
+
+                item {
+                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "LANÇAMENTOS · ${despesasRaw.size}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorTextSecondary,
+                            letterSpacing = 1.sp, modifier = Modifier.weight(1f).padding(start = 4.dp)
+                        )
+
+                        // Botão do consultor de IA
+                        FilledTonalButton(
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(34.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = colorAccent.copy(alpha = 0.12f), contentColor = colorAccent),
+                            onClick = {
+                                mostrarDialogIA = true
+                                carregandoIA = true
+                                coroutineScope.launch {
+                                    try {
+                                        val nomeUsuario = user.displayName?.split(" ")?.firstOrNull() ?: "cliente"
+                                        fun rs(v: Double) = "R$ " + formatador.format(v)
+
+                                        // Mesmo recorte do resumo: ignora projetos e o que foi adiado para o próximo mês
+                                        val despesasMes = despesasRaw.filter { it.projetoId == null && it.status != "Próximo Mês" }
+                                        val percentualGasto = if (totalRenda > 0) ((totalDespesasGeral / totalRenda) * 100).toInt() else 0
+                                        val gastosFixos = despesasMes.filter { it.tipo == "Fixa" }.sumOf { it.valor }
+                                        val gastosVariaveis = despesasMes.filter { it.tipo == "Variável" }.sumOf { it.valor }
+
+                                        val topCategorias = despesasMes.groupBy { it.categoria }
+                                            .mapValues { it.value.sumOf { d -> d.valor } }
+                                            .entries.sortedByDescending { it.value }.take(4)
+                                            .joinToString("\n") { (cat, v) -> "- $cat: ${rs(v)} (${if (totalDespesasGeral > 0) (v / totalDespesasGeral * 100).toInt() else 0}% das despesas)" }
+                                        val maioresGastos = despesasMes.sortedByDescending { it.valor }.take(5)
+                                            .joinToString("\n") { "- ${it.descricao} (${it.categoria}, ${it.tipo}): ${rs(it.valor)}" }
+
+                                        val blocoProjecao = previsao?.let { p ->
+                                            buildString {
+                                                appendLine("[PROJEÇÃO DO MÊS CORRENTE]")
+                                                appendLine("- Hoje é dia ${p.diaHoje} de ${p.diasNoMes}")
+                                                appendLine("- Ritmo de gasto variável: ${rs(p.ritmoDiario)}/dia")
+                                                appendLine("- Sobra projetada no fim do mês: ${rs(p.sobraProjetada)}")
+                                                appendLine("- Limite diário para não zerar a sobra: ${rs(p.limiteDiario)}")
+                                                p.diaZera?.let { appendLine("- No ritmo atual, a sobra zera no dia $it") }
+                                                if (p.contasVencidas.isNotEmpty()) appendLine("- Contas vencidas sem pagamento: ${p.contasVencidas.size} (${rs(p.contasVencidas.sumOf { it.valor })})")
+                                                if (!p.projecaoConfiavel) appendLine("- Início do mês: projeção ainda instável")
+                                            }.trim()
+                                        } ?: "[MÊS FECHADO OU FUTURO: sem projeção diária]"
+
+                                        val promptSistema = listOf(
+                                            "Você é o Consultor FluxAí, consultor financeiro pessoal dentro de um app brasileiro de controle de gastos.",
+                                            "Escreva em português do Brasil, tom direto e acolhedor, falando com o usuário por \"você\".",
+                                            "",
+                                            "Regras:",
+                                            "- Use apenas os números fornecidos. Não invente gastos, rendas, juros ou produtos financeiros.",
+                                            "- Cite valores concretos em R$ nas recomendações (ex.: \"cortar R$ 150 em Lazer\").",
+                                            "- As ações devem ser possíveis ainda neste mês e ligadas às categorias e lançamentos informados.",
+                                            "- Se a renda for zero, diga que ela não foi cadastrada e peça para registrá-la antes de uma análise completa.",
+                                            "- Se estiver tudo saudável, reconheça e sugira o próximo passo (reserva de emergência, investir a sobra).",
+                                            "- Texto puro: NÃO use markdown (sem **, #, tabelas). Para listas, comece a linha com \"• \".",
+                                            "- Máximo de 130 palavras. Sem saudação e sem despedida.",
+                                            "",
+                                            "Formato exato:",
+                                            "Diagnóstico: <1 ou 2 frases sobre a situação do mês>",
+                                            "",
+                                            "Ponto de atenção: <o maior gargalo, com o valor>",
+                                            "",
+                                            "O que fazer:",
+                                            "• <ação 1 com valor>",
+                                            "• <ação 2 com valor>",
+                                            "• <ação 3, opcional>"
+                                        ).joinToString("\n")
+
+                                        val prompt = listOf(
+                                            "Usuário: $nomeUsuario",
+                                            "Mês analisado: $mesAnoSelecionado",
+                                            "",
+                                            "[RENDA]",
+                                            "- Total: ${rs(totalRenda)} (1ª quinzena: ${rs(valAdiantamento + valExtra)}, 2ª quinzena: ${rs(valPagamento)})",
+                                            "",
+                                            "[DESPESAS]",
+                                            "- Total: ${rs(totalDespesasGeral)}, comprometendo $percentualGasto% da renda",
+                                            "- Fixas: ${rs(gastosFixos)} | Variáveis: ${rs(gastosVariaveis)}",
+                                            "- Já pago: ${rs(totalPago)} | Ainda a pagar: ${rs(totalAPagar)}",
+                                            "- Sobra da 1ª quinzena: ${rs(sobraQ1)} | Sobra final: ${rs(sobraFinal)}",
+                                            "",
+                                            "[MAIORES CATEGORIAS]",
+                                            topCategorias.ifEmpty { "(nenhuma despesa lançada)" },
+                                            "",
+                                            "[MAIORES LANÇAMENTOS]",
+                                            maioresGastos.ifEmpty { "(nenhum)" },
+                                            "",
+                                            blocoProjecao
+                                        ).joinToString("\n")
+
+                                        contextoIA = prompt
+                                        respostaIA = try {
+                                            chamarIA("consultor", promptSistema, prompt)
+                                                // Garantia caso o modelo ainda mande markdown: o dialog exibe texto puro
+                                                .replace("**", "").replace(Regex("(?m)^#+\\s*"), "").replace(Regex("(?m)^[-*]\\s+"), "• ").trim()
+                                        } catch (e: FalhaIA) { e.message ?: "Falha na IA." }
+                                    } catch(e: Exception) { respostaIA = "Falha interna ao gerar análise." } finally { carregandoIA = false }
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Consultor IA", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    // Barra de busca
+                    OutlinedTextField(
+                        value = textoPesquisa,
+                        onValueChange = { textoPesquisa = it },
+                        placeholder = { Text("Pesquisar lançamentos", color = colorTextSecondary) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = colorTextSecondary) },
+                        trailingIcon = { if(textoPesquisa.isNotEmpty()) IconButton(onClick = { textoPesquisa = "" }) { Icon(Icons.Default.Close, "Limpar busca", tint = colorTextSecondary) } },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                        shape = FormatoCampo,
+                        singleLine = true,
+                        colors = coresCampo
+                    )
+                    val listaFiltroFinais = (listOf("Moradia", "Alimentação", "Transporte", "Saúde", "Educação", "Lazer", "Empréstimo", "Cartão de Crédito", "Outros") + categoriasCustomList).distinct()
+                    // Quantidade e total por categoria no mês: as que têm lançamentos aparecem primeiro
+                    val resumoCategorias = remember(despesasRaw, listaFiltroFinais) {
+                        val porCat = despesasRaw.groupBy { it.categoria }
+                        listaFiltroFinais.map { cat -> Triple(cat, porCat[cat]?.size ?: 0, porCat[cat]?.sumOf { it.valor } ?: 0.0) }
+                            .sortedWith(compareByDescending<Triple<String, Int, Double>> { it.second > 0 }.thenByDescending { it.third })
+                    }
+                    var filtroAberto by remember { mutableStateOf(false) }
+                    val filtrando = categoriaSelecionada != "Todas"
+
+                    Box(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable { filtroAberto = true },
+                            shape = FormatoCampo,
+                            color = if (filtrando) colorAccent.copy(alpha = 0.10f) else colorSurface,
+                            border = BorderStroke(1.dp, if (filtrando) colorAccent else colorDivider)
+                        ) {
+                            Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (filtrando) iconeCategoria(categoriaSelecionada) else Icons.Default.FilterList, null,
+                                    tint = if (filtrando) corCategoria(categoriaSelecionada) else colorTextSecondary, modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Categoria", fontSize = 11.sp, color = colorTextSecondary)
+                                    Text(if (filtrando) categoriaSelecionada else "Todas as categorias", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colorTextPrimary)
+                                }
+                                if (filtrando) {
+                                    IconButton(onClick = { categoriaSelecionada = "Todas" }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Default.Close, "Limpar filtro", tint = colorTextSecondary, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                                Icon(Icons.Default.ArrowDropDown, null, tint = colorTextSecondary)
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = filtroAberto,
+                            onDismissRequest = { filtroAberto = false },
+                            modifier = Modifier.fillMaxWidth(0.88f).heightIn(max = 420.dp).background(colorSurface)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Todas as categorias", fontWeight = FontWeight.SemiBold, color = colorTextPrimary) },
+                                leadingIcon = { Icon(Icons.Default.FilterList, null, tint = colorAccent) },
+                                trailingIcon = { if (!filtrando) Icon(Icons.Default.Check, null, tint = colorAccent) },
+                                onClick = { categoriaSelecionada = "Todas"; filtroAberto = false }
+                            )
+                            HorizontalDivider(color = colorDivider)
+                            resumoCategorias.forEach { (cat, qtd, total) ->
+                                val vazia = qtd == 0
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(cat, color = colorTextPrimary.copy(alpha = if (vazia) 0.45f else 1f), fontWeight = if (cat == categoriaSelecionada) FontWeight.Bold else FontWeight.Normal)
+                                            if (!vazia) Text("$qtd ${if (qtd == 1) "lançamento" else "lançamentos"} · R$ ${formatador.format(total)}", fontSize = 11.sp, color = colorTextSecondary)
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Box(modifier = Modifier.size(32.dp).background(corCategoria(cat).copy(alpha = if (vazia) 0.06f else 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(iconeCategoria(cat), null, tint = corCategoria(cat).copy(alpha = if (vazia) 0.4f else 1f), modifier = Modifier.size(18.dp))
+                                        }
+                                    },
+                                    trailingIcon = { if (cat == categoriaSelecionada) Icon(Icons.Default.Check, null, tint = colorAccent) },
+                                    onClick = { categoriaSelecionada = cat; filtroAberto = false }
+                                )
                             }
                         }
                     }
                 }
 
-                item {
-                    Button(
-                        onClick = {
-                            mostrarDialogIA = true
-                            carregandoIA = true
-                            coroutineScope.launch {
-                                try {
-                                    val apiKey = fluxai.app.BuildConfig.GEMINI_API_KEY
-                                    val model = GenerativeModel("gemini-2.5-flash", apiKey)
-                                    val prompt = "Analise R$ $saldoRenda renda, sobra R$ $sobra. Gastos: ${despesasRaw.size}. Dê 3 dicas úteis."
-                                    respostaIA = model.generateContent(prompt).text ?: "Não foi possível gerar a análise."
-                                } catch(e: Exception) {
-                                    respostaIA = "Erro de conexão: Verifique seu local.properties e dê um Rebuild no projeto."
-                                } finally {
-                                    carregandoIA = false
-                                }
+                if (despesasMutaveis.isEmpty()) {
+                    item {
+                        val buscando = textoPesquisa.isNotBlank() || categoriaSelecionada != "Todas"
+                        Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.size(80.dp).background(colorAccent.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(if (buscando) Icons.Default.SearchOff else Icons.Default.ReceiptLong, null, Modifier.size(40.dp), tint = colorAccent)
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 24.dp), colors = ButtonDefaults.buttonColors(containerColor = colorAccent.copy(alpha = 0.1f), contentColor = colorAccent), shape = RoundedCornerShape(16.dp), elevation = ButtonDefaults.buttonElevation(0.dp)
-                    ) { Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(20.dp)); Spacer(modifier = Modifier.width(8.dp)); Text("Consultoria Inteligente", fontWeight = FontWeight.Bold, fontSize = 14.sp) }
+                            Spacer(Modifier.height(14.dp))
+                            Text(if (buscando) "Nenhum lançamento encontrado" else "Nenhum lançamento neste mês", fontWeight = FontWeight.Bold, color = colorTextPrimary)
+                            Text(
+                                if (buscando) "Tente outro termo ou limpe o filtro de categoria." else "Os gastos que você registrar aparecem aqui.",
+                                fontSize = 13.sp, color = colorTextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
 
-                item {
-                    Column {
-                        Text("Categorias", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorTextSecondary, modifier = Modifier.padding(bottom = 8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 16.dp)) {
-                            val cats = listOf("Todas", "Moradia", "Alimentação", "Transporte", "Saúde", "Educação", "Lazer", "Outros")
-                            items(cats) { cat ->
-                                val selecionado = categoriaSelecionada == cat
-                                Surface(modifier = Modifier.clickable { categoriaSelecionada = cat }, shape = RoundedCornerShape(percent = 50), color = if (selecionado) colorAccent else Color.White, border = if (selecionado) null else BorderStroke(1.dp, Color(0xFFE5E7EB))) {
-                                    Text(text = cat, color = if (selecionado) Color.White else colorTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                                }
-                            }
-                        }
+                itemsIndexed(despesasMutaveis, key = { _, d -> d.id }) { _, despesa ->
+                    val isDragging = despesa.id == draggedId
+                    val offsetY by animateFloatAsState(targetValue = if (isDragging) dragOffset else 0f, label = "")
+                    var itemHeightPx by remember { mutableStateOf(1f) }
 
-                        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Lançamentos", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = colorTextPrimary)
-                            OutlinedButton(
-                                onClick = {
-                                    if (usuario != null) {
-                                        val calAnterior = calendar.clone() as Calendar
-                                        calAnterior.add(Calendar.MONTH, -1)
-                                        val mesOrigem = SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(calAnterior.time)
-                                        Toast.makeText(context, "Puxando fixas de $mesOrigem...", Toast.LENGTH_SHORT).show()
+                    Box(
+                        modifier = Modifier
+                            .zIndex(if (isDragging) 1f else 0f)
+                            .onSizeChanged { itemHeightPx = it.height.toFloat() }
+                            .graphicsLayer { translationY = offsetY }
+                            .pointerInput(despesa.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { draggedId = despesa.id },
+                                    onDragEnd = {
+                                        draggedId = null
+                                        dragOffset = 0f
 
-                                        banco.collection("usuarios").document(usuario.uid).collection("despesas").whereEqualTo("mesAno", mesOrigem).whereEqualTo("tipo", "Fixa").get().addOnSuccessListener { query ->
-                                            if (query.isEmpty) { Toast.makeText(context, "Nenhuma fixa em $mesOrigem", Toast.LENGTH_SHORT).show() }
-                                            else {
+                                        coroutineScope.launch {
+                                            try {
                                                 val batch = banco.batch()
-                                                query.documents.forEach { doc ->
-                                                    val novaRef = banco.collection("usuarios").document(usuario.uid).collection("despesas").document()
-                                                    val dados = doc.data?.toMutableMap() ?: mutableMapOf()
-                                                    dados["mesAno"] = mesAnoSelecionado; dados["status"] = "A pagar"; batch.set(novaRef, dados)
+                                                val novaListaGlobal = despesasRaw.toMutableList()
+                                                val visiveisIds = despesasMutaveis.map { it.id }
+
+                                                val idxStart = novaListaGlobal.indexOfFirst { it.id in visiveisIds }.takeIf { it >= 0 } ?: 0
+                                                novaListaGlobal.removeAll { it.id in visiveisIds }
+                                                novaListaGlobal.addAll(idxStart, despesasMutaveis)
+
+                                                novaListaGlobal.forEachIndexed { index, desp ->
+                                                    val ref = banco.collection("usuarios").document(workspaceUid).collection("despesas").document(desp.id)
+                                                    batch.update(ref, "ordem", index)
                                                 }
-                                                batch.commit().addOnSuccessListener { Toast.makeText(context, "Fixas importadas com sucesso!", Toast.LENGTH_SHORT).show() }
+                                                batch.commit()
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("FluxAi_Drag", "Erro ao salvar ordem no banco", e)
+                                            }
+                                        }
+                                    },
+                                    onDragCancel = { draggedId = null; dragOffset = 0f },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragOffset += dragAmount.y
+
+                                        val currIdx = despesasMutaveis.indexOfFirst { it.id == despesa.id }
+                                        if (currIdx != -1) {
+                                            if (dragOffset > itemHeightPx && currIdx < despesasMutaveis.size - 1) {
+                                                val temp = despesasMutaveis[currIdx]
+                                                despesasMutaveis[currIdx] = despesasMutaveis[currIdx + 1]
+                                                despesasMutaveis[currIdx + 1] = temp
+                                                dragOffset -= itemHeightPx
+                                            } else if (dragOffset < -itemHeightPx && currIdx > 0) {
+                                                val temp = despesasMutaveis[currIdx]
+                                                despesasMutaveis[currIdx] = despesasMutaveis[currIdx - 1]
+                                                despesasMutaveis[currIdx - 1] = temp
+                                                dragOffset += itemHeightPx
                                             }
                                         }
                                     }
-                                },
-                                shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), modifier = Modifier.height(36.dp)
-                            ) { Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(14.dp), tint = colorAccent); Spacer(modifier = Modifier.width(6.dp)); Text("Puxar Fixas", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorAccent) }
+                                )
+                            }
+                    ) {
+                        Column {
+                            DashDespesaCard(
+                                despesa = despesa,
+                                isDark = isDark,
+                                colorAccent = colorAccent,
+                                onStatusChange = { n -> banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesa.id).update("status", n) },
+                                onPagamentoCartao = { despesaParaPagarCartao = despesa },
+                                onEditClick = { despesaParaEditar = despesa },
+                                onDeleteClick = { despesaParaExcluir = despesa },
+                                cartao = despesa.cartaoId?.let { cartoesVisuais[it] }
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
                         }
                     }
                 }
 
-                if (ordenadas.isEmpty()) {
-                    item { Column(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Inbox, null, modifier = Modifier.size(64.dp), tint = Color.LightGray); Spacer(modifier = Modifier.height(16.dp)); Text("Nenhum lançamento no mês selecionado.", color = colorTextSecondary, fontSize = 14.sp) } }
-                } else {
-                    items(ordenadas) { despesa ->
-                        DespesaCardUI(
-                            despesa = despesa,
-                            onStatusChange = { novo -> banco.collection("usuarios").document(usuario!!.uid).collection("despesas").document(despesa.id).update("status", novo) },
-                            onEditClick = { despesaParaEditar = despesa },
-                            onDeleteClick = { despesaParaExcluir = despesa }
+                item { Spacer(modifier = Modifier.height(80.dp)) }
+            }
+        }
+
+        if (despesaParaEditar != null) {
+            var eDesc by remember { mutableStateOf(despesaParaEditar!!.descricao) }
+            var eVal by remember { mutableStateOf("%.2f".format(despesaParaEditar!!.valor).replace(".", ",")) }
+            var eDia by remember { mutableStateOf(despesaParaEditar!!.diaVencimento.toString()) }
+            var eMesAno by remember { mutableStateOf(despesaParaEditar!!.mesAno) }
+            var eTipo by remember { mutableStateOf(despesaParaEditar!!.tipo) }
+            var eFreq by remember { mutableStateOf(despesaParaEditar!!.frequencia) }
+            var eCat by remember { mutableStateOf(despesaParaEditar!!.categoria) }
+            var expandidoEditCategoria by remember { mutableStateOf(false) }
+            val cats = (listOf("Moradia", "Alimentação", "Transporte", "Saúde", "Educação", "Lazer", "Empréstimo", "Cartão de Crédito", "Outros") + categoriasCustomList).distinct()
+            var eStatus by remember { mutableStateOf(despesaParaEditar!!.status) }
+
+            AlertDialog(
+                onDismissRequest = { despesaParaEditar = null },
+                containerColor = colorSurface,
+                shape = RoundedCornerShape(28.dp),
+                title = { Text("Editar lançamento", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
+                text = {
+                    // Chips no mesmo estilo da tela de lançamento
+                    val coresChip = FilterChipDefaults.filterChipColors(selectedContainerColor = colorAccent.copy(alpha = 0.14f), selectedLabelColor = colorAccent, labelColor = colorTextPrimary)
+                    @Composable
+                    fun Chip(texto: String, selecionado: Boolean, onClick: () -> Unit) = FilterChip(
+                        selected = selecionado, onClick = onClick, label = { Text(texto) }, shape = RoundedCornerShape(12.dp), colors = coresChip,
+                        border = FilterChipDefaults.filterChipBorder(enabled = true, selected = selecionado, borderColor = colorDivider, selectedBorderColor = colorAccent)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        OutlinedTextField(
+                            value = eVal, onValueChange = { eVal = it }, label = { Text("Valor", color = colorTextSecondary) }, prefix = { Text("R$ ", color = colorTextPrimary) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(),
+                            colors = coresCampo, shape = FormatoCampo, singleLine = true
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = eDesc, onValueChange = { eDesc = it }, label = { Text("Descrição", color = colorTextSecondary) }, modifier = Modifier.fillMaxWidth(),
+                            colors = coresCampo, shape = FormatoCampo, singleLine = true
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = eDia, onValueChange = { if(it.length <= 2) eDia = it }, label = { Text("Dia", color = colorTextSecondary) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(0.8f),
+                                colors = coresCampo, shape = FormatoCampo, singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = eMesAno, onValueChange = { if(it.length <= 7) eMesAno = it }, label = { Text("Mês/ano", color = colorTextSecondary) }, modifier = Modifier.weight(1.2f),
+                                colors = coresCampo, shape = FormatoCampo, singleLine = true
+                            )
+                        }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = eCat, onValueChange = { }, readOnly = true, label = { Text("Categoria", color = colorTextSecondary) }, modifier = Modifier.fillMaxWidth(),
+                                colors = coresCampo,
+                                leadingIcon = { Icon(iconeCategoria(eCat), null, tint = corCategoria(eCat)) },
+                                trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, tint = colorTextSecondary) },
+                                shape = FormatoCampo
+                            )
+                            Box(modifier = Modifier.matchParentSize().clickable { expandidoEditCategoria = !expandidoEditCategoria })
+                            DropdownMenu(expanded = expandidoEditCategoria, onDismissRequest = { expandidoEditCategoria = false }, modifier = Modifier.fillMaxWidth(0.8f).background(colorSurface)) {
+                                cats.forEach { c ->
+                                    DropdownMenuItem(
+                                        text = { Text(c, color = colorTextPrimary) },
+                                        leadingIcon = { Icon(iconeCategoria(c), null, tint = corCategoria(c), modifier = Modifier.size(20.dp)) },
+                                        onClick = { eCat = c; expandidoEditCategoria = false }
+                                    )
+                                }
+                            }
+                        }
+                        TituloSecaoDashboard("Frequência", colorTextSecondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip("Mensal", eFreq == "Mensal") { eFreq = "Mensal" }
+                            Chip("Quinzenal", eFreq == "Quinzenal") { eFreq = "Quinzenal" }
+                        }
+                        TituloSecaoDashboard("Tipo", colorTextSecondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip("Fixa", eTipo == "Fixa") { eTipo = "Fixa" }
+                            Chip("Variável", eTipo == "Variável") { eTipo = "Variável" }
+                        }
+                        TituloSecaoDashboard("Status", colorTextSecondary)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(listOf("Pago", "A pagar", "Próximo Mês", "Renegociar")) { s ->
+                                Chip(s, eStatus == s) { eStatus = s }
+                            }
+                        }
                     }
-                    item { Spacer(modifier = Modifier.height(80.dp)) }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val v = eVal.paraValor() ?: 0.0
+                            val original = despesaParaEditar!!
+                            ajustarFatura(original, v - original.valor)
+                            val isParcelaOriginal = original.descricao.matches(Regex(".*\\(\\d+/\\d+\\)$"))
+
+                            if (isParcelaOriginal) {
+                                val baseDescOriginal = original.descricao.substringBeforeLast(" (")
+                                // Busca só as parcelas da mesma compra (prefixo da descrição), não a coleção inteira
+                                banco.collection("usuarios").document(workspaceUid).collection("despesas")
+                                    .whereGreaterThanOrEqualTo("descricao", "$baseDescOriginal (")
+                                    .whereLessThan("descricao", "$baseDescOriginal (\uf8ff")
+                                    .get().addOnSuccessListener { query ->
+                                    val batch = banco.batch()
+                                    query.documents.forEach { doc ->
+                                        val descBanco = doc.getString("descricao") ?: ""
+                                        if (descBanco.startsWith("$baseDescOriginal (") && descBanco.matches(Regex(".*\\(\\d+/\\d+\\)$"))) {
+                                            val ref = banco.collection("usuarios").document(workspaceUid).collection("despesas").document(doc.id)
+                                            if (doc.id == original.id) {
+                                                batch.update(ref, mapOf("descricao" to eDesc, "valor" to v, "diaVencimento" to (eDia.toIntOrNull() ?: 1), "mesAno" to eMesAno, "categoria" to eCat, "tipo" to eTipo, "frequencia" to eFreq, "status" to eStatus))
+                                            } else {
+                                                batch.update(ref, mapOf("categoria" to eCat))
+                                            }
+                                        }
+                                    }
+                                    batch.commit().addOnSuccessListener { despesaParaEditar = null }
+                                }
+                            } else {
+                                banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesaParaEditar!!.id).update(mapOf("descricao" to eDesc, "valor" to v, "diaVencimento" to (eDia.toIntOrNull() ?: 1), "mesAno" to eMesAno, "categoria" to eCat, "tipo" to eTipo, "frequencia" to eFreq, "status" to eStatus)).addOnSuccessListener { despesaParaEditar = null }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorAccent)
+                    ) { Text("Salvar", color = Color.White) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { despesaParaEditar = null }) { Text("Cancelar", color = colorTextSecondary) }
+                }
+            )
+        }
+
+        if (mostrarDialogCalendario) {
+            var anoTemp by remember { mutableIntStateOf(calendar.get(Calendar.YEAR)) }
+            val mesesAbrev = listOf("Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez")
+
+            AlertDialog(
+                onDismissRequest = { mostrarDialogCalendario = false }, containerColor = colorSurface, titleContentColor = colorTextPrimary,
+                shape = RoundedCornerShape(28.dp),
+                title = { Text("Mês de referência", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { anoTemp-- }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = colorTextPrimary) }
+                            Text(anoTemp.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = colorAccent)
+                            IconButton(onClick = { anoTemp++ }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = colorTextPrimary) }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        val rows = mesesAbrev.chunked(4)
+                        Column {
+                            rows.forEachIndexed { rowIndex, rowMonths ->
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                    rowMonths.forEachIndexed { colIndex, mesStr ->
+                                        val mesIndex = rowIndex * 4 + colIndex
+                                        val isSelecionado = calendar.get(Calendar.MONTH) == mesIndex && calendar.get(Calendar.YEAR) == anoTemp
+                                        TextButton(
+                                            onClick = {
+                                                calendar.set(Calendar.YEAR, anoTemp); calendar.set(Calendar.MONTH, mesIndex)
+                                                atualizarData() // Título também atualizado ao selecionar
+                                                mostrarDialogCalendario = false
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.textButtonColors(containerColor = if (isSelecionado) colorAccent.copy(alpha = 0.14f) else Color.Transparent)
+                                        ) { Text(mesStr, color = if (isSelecionado) colorAccent else colorTextPrimary, fontWeight = if (isSelecionado) FontWeight.Bold else FontWeight.Normal) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { mostrarDialogCalendario = false }) { Text("Cancelar", color = colorTextSecondary) } }
+            )
+        }
+
+        if (mostrarDialogEmprestimo) {
+            var eBanco by remember { mutableStateOf("") }
+            var eValorRecebido by remember { mutableStateOf("") }
+            var eQtdParcelas by remember { mutableStateOf("") }
+            var eValorParcela by remember { mutableStateOf("") }
+            var eDiaVencimento by remember { mutableStateOf("") }
+            var salvandoEmprestimo by remember { mutableStateOf(false) }
+
+            AlertDialog(
+                onDismissRequest = { mostrarDialogEmprestimo = false },
+                containerColor = colorSurface,
+                shape = RoundedCornerShape(28.dp),
+                icon = {
+                    Box(Modifier.size(48.dp).background(Color(0xFF43A047).copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.AccountBalance, null, tint = Color(0xFF43A047))
+                    }
+                },
+                title = { Text("Pegar empréstimo", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        Text("O valor recebido entra no saldo deste mês, e as parcelas são geradas automaticamente.", fontSize = 13.sp, color = colorTextSecondary, lineHeight = 18.sp)
+
+                        TituloSecaoDashboard("Recebimento", colorTextSecondary)
+                        OutlinedTextField(value = eBanco, onValueChange = { eBanco = it }, label = { Text("Banco ou financeira (ex.: Nubank)") }, modifier = Modifier.fillMaxWidth(), shape = FormatoCampo, colors = coresCampo, singleLine = true)
+                        OutlinedTextField(value = eValorRecebido, onValueChange = { eValorRecebido = it }, label = { Text("Valor recebido agora") }, prefix = { Text("R$ ") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), colors = coresCampo, shape = FormatoCampo, singleLine = true)
+
+                        TituloSecaoDashboard("Parcelas", colorTextSecondary)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(value = eQtdParcelas, onValueChange = { eQtdParcelas = it }, label = { Text("Quantidade") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f), shape = FormatoCampo, colors = coresCampo, singleLine = true)
+                            OutlinedTextField(value = eDiaVencimento, onValueChange = { if(it.length <= 2) eDiaVencimento = it }, label = { Text("Vence dia") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f), shape = FormatoCampo, colors = coresCampo, singleLine = true)
+                        }
+                        OutlinedTextField(value = eValorParcela, onValueChange = { eValorParcela = it }, label = { Text("Valor de cada parcela") }, prefix = { Text("R$ ") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), colors = coresCampo, shape = FormatoCampo, singleLine = true)
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val vRecebido = eValorRecebido.paraValor() ?: 0.0
+                            val vParcela = eValorParcela.paraValor() ?: 0.0
+                            val qtd = eQtdParcelas.toIntOrNull() ?: 0
+                            val dia = eDiaVencimento.toIntOrNull() ?: 0
+
+                            if (eBanco.isNotBlank() && vRecebido > 0 && vParcela > 0 && qtd > 0 && dia > 0) {
+                                salvandoEmprestimo = true
+                                coroutineScope.launch {
+                                    try {
+                                        val ad = adiantamentoString.paraValor() ?: 0.0
+                                        val pg = pagamentoString.paraValor() ?: 0.0
+                                        val exAntigo = extraString.paraValor() ?: 0.0
+                                        val exNovo = exAntigo + vRecebido
+
+                                        banco.collection("usuarios").document(workspaceUid).collection("saldos").document(mesAnoSelecionado.replace("/", "-"))
+                                            .set(mapOf("adiantamento" to ad, "pagamento" to pg, "extra" to exNovo, "valor" to (ad + pg + exNovo)))
+
+                                        val batch = banco.batch()
+                                        val dbRef = banco.collection("usuarios").document(workspaceUid).collection("despesas")
+                                        val partesData = mesAnoSelecionado.split("/")
+                                        var mesLoop = partesData.getOrNull(0)?.toIntOrNull() ?: 1
+                                        var anoLoop = partesData.getOrNull(1)?.toIntOrNull() ?: 2026
+
+                                        for (i in 1..qtd) {
+                                            val mesAnoFormato = String.format(Locale("pt", "BR"), "%02d/%04d", mesLoop, anoLoop)
+                                            val docRef = dbRef.document()
+                                            batch.set(docRef, hashMapOf(
+                                                "descricao" to "Empréstimo $eBanco ($i/$qtd)",
+                                                "valor" to vParcela,
+                                                "diaVencimento" to dia,
+                                                "tipo" to "Fixa",
+                                                "categoria" to "Empréstimo",
+                                                "status" to "A pagar",
+                                                "mesAno" to mesAnoFormato,
+                                                "frequencia" to "Mensal",
+                                                "observacao" to "Gerado via Assistente",
+                                                "ordem" to 0
+                                            ))
+                                            mesLoop++
+                                            if (mesLoop > 12) { mesLoop = 1; anoLoop++ }
+                                        }
+                                        batch.commit().addOnSuccessListener {
+                                            mostrarDialogEmprestimo = false
+                                            Toast.makeText(context, "Empréstimo Registrado com Sucesso!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Erro ao salvar", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        salvandoEmprestimo = false
+                                    }
+                                }
+                            } else {
+                                Toast.makeText(context, "Preencha todos os campos corretamente", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047)),
+                        enabled = !salvandoEmprestimo
+                    ) {
+                        if(salvandoEmprestimo) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                        else Text("Confirmar")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { mostrarDialogEmprestimo = false }) { Text("Cancelar", color = colorTextSecondary) } }
+            )
+        }
+
+        if (mostrarRecorrencia) {
+            DialogoRecorrencia(
+                candidatas = candidatasRecorrentes, cor = colorAccent, corSuperficie = colorSurface, corTexto = colorTextPrimary, corTextoFraco = colorTextSecondary,
+                onConfirmar = { escolhidas ->
+                    mostrarRecorrencia = false
+                    trazerRecorrentes(workspaceUid, mesAnoSelecionado, escolhidas) { ok ->
+                        Toast.makeText(context, if (ok) "${escolhidas.size} contas trazidas para este mês" else "Não foi possível trazer as contas.", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onFechar = { mostrarRecorrencia = false }
+            )
+        }
+
+        if (mostrarDialogIA) {
+            PainelConsultorIA(
+                analise = respostaIA, carregandoAnalise = carregandoIA, contextoDoMes = contextoIA,
+                colorAccent = colorAccent, colorSurface = colorSurface, colorTextPrimary = colorTextPrimary, colorTextSecondary = colorTextSecondary,
+                onFechar = { mostrarDialogIA = false }
+            )
+        }
+
+        if (despesaParaExcluir != null) {
+            AlertDialog(
+                onDismissRequest = { despesaParaExcluir = null },
+                containerColor = colorSurface,
+                shape = RoundedCornerShape(28.dp),
+                icon = { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFE53935)) },
+                title = { Text("Excluir lançamento?", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
+                text = { Text("'${despesaParaExcluir!!.descricao}' será removido deste mês. Essa ação não pode ser desfeita.", color = colorTextSecondary) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val despesa = despesaParaExcluir!!
+                            ajustarFatura(despesa, -despesa.valor)
+                            if (despesa.descricao.startsWith("Apontamento:", ignoreCase = true)) {
+                                val nomeCaixinha = despesa.descricao.substringAfter("Apontamento:").trim()
+                                val valorEstorno = despesa.valor
+                                banco.collection("usuarios").document(workspaceUid).collection("caixinhas")
+                                    .whereEqualTo("nome", nomeCaixinha).get()
+                                    .addOnSuccessListener { query ->
+                                        if (!query.isEmpty) {
+                                            val docCx = query.documents.first()
+                                            val saldoAtual = docCx.getDouble("saldo") ?: 0.0
+                                            val novoSaldo = (saldoAtual - valorEstorno).coerceAtLeast(0.0)
+                                            banco.collection("usuarios").document(workspaceUid).collection("caixinhas").document(docCx.id).update("saldo", novoSaldo)
+                                            banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesa.id).delete()
+                                            Toast.makeText(context, "Estornado da caixinha: $nomeCaixinha", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesa.id).delete()
+                                        }
+                                    }
+                            } else {
+                                banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesa.id).delete()
+                            }
+                            despesaParaExcluir = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                    ) { Text("Excluir", color = Color.White) }
+                },
+                dismissButton = { TextButton(onClick = { despesaParaExcluir = null }) { Text("Cancelar", color = colorTextSecondary) } }
+            )
+        }
+
+        if (despesaParaPagarCartao != null) {
+            var valorPagoStr by remember { mutableStateOf("%.2f".format(despesaParaPagarCartao!!.valor).replace(".", ",")) }
+            var processandoPagamento by remember { mutableStateOf(false) }
+
+            AlertDialog(
+                onDismissRequest = { despesaParaPagarCartao = null },
+                containerColor = colorSurface,
+                shape = RoundedCornerShape(28.dp),
+                icon = { Icon(Icons.Default.CreditCard, null, tint = colorAccent) },
+                title = { Text("Pagamento de cartão", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Esta despesa está vinculada a um cartão. Ao confirmar, o limite do cartão será liberado.", color = colorTextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+                        Surface(shape = FormatoCampo, color = colorAccent.copy(alpha = 0.08f), modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Valor original", fontSize = 13.sp, color = colorTextSecondary, modifier = Modifier.weight(1f))
+                                Text(moeda.format(despesaParaPagarCartao!!.valor), fontWeight = FontWeight.Bold, color = colorTextPrimary)
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = valorPagoStr,
+                            onValueChange = { valorPagoStr = it },
+                            label = { Text("Valor pago") },
+                            prefix = { Text("R$ ") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = FormatoCampo,
+                            colors = coresCampo
+                        )
+                        Text("Se você pagar um valor menor, o restante será lançado como uma nova despesa pendente no mês seguinte.", fontSize = 12.sp, color = colorTextSecondary, lineHeight = 16.sp)
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val valorPago = valorPagoStr.paraValor() ?: 0.0
+                            if (valorPago > 0) {
+                                processandoPagamento = true
+                                coroutineScope.launch {
+                                    try {
+                                        val despesaRef = banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesaParaPagarCartao!!.id)
+                                        val cartaoRef = banco.collection("usuarios").document(workspaceUid).collection("cartoes").document(despesaParaPagarCartao!!.cartaoId!!)
+
+                                        banco.runTransaction { transaction ->
+                                            val cartaoSnap = transaction.get(cartaoRef)
+                                            if (cartaoSnap.exists()) {
+                                                val faturaAtual = cartaoSnap.getDouble("faturaAtual") ?: 0.0
+                                                val novaFatura = (faturaAtual - valorPago).coerceAtLeast(0.0)
+                                                transaction.update(cartaoRef, "faturaAtual", novaFatura)
+                                            }
+
+                                            if (valorPago >= despesaParaPagarCartao!!.valor) {
+                                                transaction.update(despesaRef, "status", "Pago")
+                                            } else {
+                                                transaction.update(despesaRef, "status", "Pago", "valor", valorPago, "observacao", "Pagamento parcial")
+
+                                                val restante = despesaParaPagarCartao!!.valor - valorPago
+
+                                                val partesData = despesaParaPagarCartao!!.mesAno.split("/")
+                                                var mesProx = partesData.getOrNull(0)?.toIntOrNull() ?: 1
+                                                var anoProx = partesData.getOrNull(1)?.toIntOrNull() ?: 2026
+                                                mesProx++
+                                                if (mesProx > 12) { mesProx = 1; anoProx++ }
+                                                val proximoMesFormato = String.format(java.util.Locale("pt", "BR"), "%02d/%04d", mesProx, anoProx)
+
+                                                val novaRef = banco.collection("usuarios").document(workspaceUid).collection("despesas").document()
+                                                val novaDespesa = hashMapOf(
+                                                    "descricao" to "Restante: ${despesaParaPagarCartao!!.descricao}",
+                                                    "valor" to restante,
+                                                    "diaVencimento" to despesaParaPagarCartao!!.diaVencimento,
+                                                    "tipo" to despesaParaPagarCartao!!.tipo,
+                                                    "categoria" to despesaParaPagarCartao!!.categoria,
+                                                    "status" to "A pagar",
+                                                    "mesAno" to proximoMesFormato,
+                                                    "cartaoId" to despesaParaPagarCartao!!.cartaoId,
+                                                    "frequencia" to "Única",
+                                                    "ordem" to 0
+                                                )
+                                                transaction.set(novaRef, novaDespesa)
+                                            }
+                                        }.addOnSuccessListener {
+                                            Toast.makeText(context, "Pagamento registrado e limite liberado!", Toast.LENGTH_SHORT).show()
+                                            despesaParaPagarCartao = null
+                                        }.addOnFailureListener {
+                                            Toast.makeText(context, "Erro ao atualizar fatura.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } finally {
+                                        processandoPagamento = false
+                                    }
+                                }
+                            } else {
+                                Toast.makeText(context, "Insira um valor válido.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorAccent),
+                        enabled = !processandoPagamento
+                    ) {
+                        if (processandoPagamento) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                        else Text("Confirmar pagamento", color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { despesaParaPagarCartao = null }) { Text("Cancelar", color = colorTextSecondary) }
+                }
+            )
+        }
+
+        if (mostrarUpdateDialog) {
+            // Visual da marca (mesmo da splash): faixa escura com a logo e o salto de versão em destaque
+            androidx.compose.ui.window.Dialog(onDismissRequest = { }) {
+                Surface(shape = RoundedCornerShape(28.dp), color = colorSurface, modifier = Modifier.fillMaxWidth()) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier.fillMaxWidth().height(150.dp).background(Brush.verticalGradient(listOf(FundoMarca, FundoMarcaRoxo))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(Modifier.size(170.dp).background(Brush.radialGradient(listOf(RoxoMarca.copy(alpha = 0.35f), Color.Transparent)), CircleShape))
+                            Image(painterResource(R.drawable.logo_app), "Logo FluxAí", modifier = Modifier.size(170.dp), contentScale = ContentScale.Fit)
+                        }
+
+                        Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(shape = RoundedCornerShape(50), color = colorAccent.copy(alpha = 0.12f)) {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.SystemUpdate, null, tint = colorAccent, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("NOVA VERSÃO", fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = colorAccent)
+                                }
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text("Tem novidade no FluxAí", fontWeight = FontWeight.Black, fontSize = 21.sp, color = colorTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Preparamos melhorias e novas funções para deixar sua gestão financeira ainda mais inteligente.",
+                                fontSize = 14.sp, color = colorTextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp
+                            )
+
+                            // Versão instalada -> versão nova
+                            Spacer(Modifier.height(16.dp))
+                            Surface(shape = RoundedCornerShape(14.dp), color = colorBg, modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Instalada", fontSize = 11.sp, color = colorTextSecondary)
+                                        Text("v${BuildConfig.VERSION_NAME}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colorTextSecondary)
+                                    }
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = colorTextSecondary, modifier = Modifier.padding(horizontal = 16.dp))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Nova", fontSize = 11.sp, color = colorAccent)
+                                        Text("v1.0.$vServidorState", fontSize = 15.sp, fontWeight = FontWeight.Black, color = colorAccent)
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(20.dp))
+                            Button(
+                                onClick = { iniciarDownloadAtualizacao(context, updateUrl); mostrarUpdateDialog = false },
+                                modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = colorAccent)
+                            ) {
+                                Icon(Icons.Default.Download, null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Atualizar agora", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                            TextButton(onClick = { mostrarUpdateDialog = false }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                Text("Instalar depois", color = colorTextSecondary, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+}
 
-    // --- DIALOGS ---
-    if (mostrarDialogCalendario) {
-        var anoTemp by remember { mutableStateOf(calendar.get(Calendar.YEAR)) }
-        val mesesAbrev = listOf("Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez")
+// Título de seção em caixa alta, igual ao das outras telas
+@Composable
+private fun TituloSecaoDashboard(titulo: String, cor: Color) {
+    Text(titulo.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = cor, letterSpacing = 1.sp, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
+}
 
-        AlertDialog(
-            onDismissRequest = { mostrarDialogCalendario = false },
-            title = { Text("Selecionar Mês", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { anoTemp-- }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null) }
-                        Text(anoTemp.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = colorAccent)
-                        IconButton(onClick = { anoTemp++ }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    val rows = mesesAbrev.chunked(4)
-                    Column {
-                        rows.forEachIndexed { rowIndex, rowMonths ->
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                rowMonths.forEachIndexed { colIndex, mesStr ->
-                                    val mesIndex = rowIndex * 4 + colIndex
-                                    val isSelecionado = calendar.get(Calendar.MONTH) == mesIndex && calendar.get(Calendar.YEAR) == anoTemp
-                                    TextButton(onClick = {
-                                        calendar.set(Calendar.YEAR, anoTemp); calendar.set(Calendar.MONTH, mesIndex)
-                                        mesAnoSelecionado = SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(calendar.time)
-                                        mesNome = SimpleDateFormat("MMMM yyyy", Locale("pt", "BR")).format(calendar.time).replaceFirstChar { it.uppercase() }
-                                        mostrarDialogCalendario = false
-                                    }) { Text(mesStr, color = if (isSelecionado) colorAccent else Color.Gray, fontWeight = if (isSelecionado) FontWeight.Bold else FontWeight.Normal) }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { mostrarDialogCalendario = false }) { Text("Cancelar", color = Color.Gray) } }
-        )
+// Número em destaque com rótulo pequeno embaixo (mesmo padrão do resumo de Assinaturas)
+@Composable
+private fun EstatisticaResumo(valor: String, rotulo: String, cor: Color, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(valor, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = cor, maxLines = 1)
+        Text(rotulo, fontSize = 11.sp, color = Color(0xFF9CA3AF))
     }
+}
 
-    if (mostrarDialogIA) { AlertDialog(onDismissRequest = { mostrarDialogIA = false }, confirmButton = { TextButton(onClick = { mostrarDialogIA = false }) { Text("Fechar", color = colorAccent) } }, title = { Row(verticalAlignment = Alignment.CenterVertically){ Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFFFFD700)); Spacer(modifier = Modifier.width(8.dp)); Text("Consultoria IA") } }, text = { Box(modifier = Modifier.heightIn(max = 350.dp).verticalScroll(rememberScrollState())) { Text(if(carregandoIA) "Analisando seus dados..." else respostaIA) } }) }
-    if (despesaParaExcluir != null) { AlertDialog(onDismissRequest = { despesaParaExcluir = null }, title = { Text("Excluir") }, text = { Text("Apagar '${despesaParaExcluir!!.descricao}'?") }, confirmButton = { Button(onClick = { banco.collection("usuarios").document(usuario!!.uid).collection("despesas").document(despesaParaExcluir!!.id).delete(); despesaParaExcluir = null }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Sim") } }, dismissButton = { TextButton(onClick = { despesaParaExcluir = null }) { Text("Cancelar", color = colorTextSecondary) } }) }
-
-    if (despesaParaEditar != null) {
-        var eDesc by remember { mutableStateOf(despesaParaEditar!!.descricao) }
-        var eVal by remember { mutableStateOf(despesaParaEditar!!.valor.toString()) }
-        var eDia by remember { mutableStateOf(despesaParaEditar!!.diaVencimento.toString()) }
-        var eTipo by remember { mutableStateOf(despesaParaEditar!!.tipo) }
-        var eCat by remember { mutableStateOf(despesaParaEditar!!.categoria) }
-
-        AlertDialog(
-            onDismissRequest = { despesaParaEditar = null }, title = { Text("Editar Lançamento", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(value = eDesc, onValueChange = { eDesc = it }, label = { Text("Descrição") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = eVal, onValueChange = { eVal = it }, label = { Text("Valor (R$)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = eDia, onValueChange = { if(it.length <= 2) eDia = it }, label = { Text("Dia do Vencimento") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { eTipo = "Fixa" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (eTipo == "Fixa") colorAccent.copy(alpha=0.1f) else Color.Transparent)) { Text("Fixa", color = if (eTipo == "Fixa") colorAccent else Color.Gray) }
-                        OutlinedButton(onClick = { eTipo = "Variável" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (eTipo == "Variável") colorAccent.copy(alpha=0.1f) else Color.Transparent)) { Text("Variável", color = if (eTipo == "Variável") colorAccent else Color.Gray) }
-                    }
-
-                    Text("Categoria:", fontSize = 12.sp, color = Color.Gray)
-                    LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val categorias = listOf("Moradia", "Alimentação", "Transporte", "Saúde", "Educação", "Lazer", "Outros")
-                        items(categorias) { cat ->
-                            OutlinedButton(onClick = { eCat = cat }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (eCat == cat) colorAccent.copy(alpha=0.1f) else Color.Transparent), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.height(32.dp)) { Text(cat, fontSize = 12.sp, color = if (eCat == cat) colorAccent else Color.Gray) }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(colors = ButtonDefaults.buttonColors(containerColor = colorAccent), onClick = {
-                    val valorFormatado = eVal.replace(",", ".").toDoubleOrNull()
-                    if (eDesc.isNotBlank() && valorFormatado != null) {
-                        banco.collection("usuarios").document(usuario!!.uid).collection("despesas").document(despesaParaEditar!!.id).update(mapOf("descricao" to eDesc, "valor" to valorFormatado, "diaVencimento" to (eDia.toIntOrNull() ?: 0), "tipo" to eTipo, "categoria" to eCat)).addOnSuccessListener { Toast.makeText(context, "Atualizado!", Toast.LENGTH_SHORT).show(); despesaParaEditar = null }
-                    }
-                }) { Text("Salvar") }
-            },
-            dismissButton = { TextButton(onClick = { despesaParaEditar = null }) { Text("Cancelar", color = colorTextSecondary) } }
-        )
+// Bloco de cada quinzena: entradas, gastos e sobra, com barra de quanto das entradas já foi comprometido
+@Composable
+private fun BlocoQuinzena(
+    titulo: String, subtitulo: String, rotuloEntradas: String, entradas: Double, gastos: Double, rotuloSobra: String, sobra: Double,
+    corSobra: Color, moeda: java.text.NumberFormat, corFundo: Color, corTexto: Color, corTextoFraco: Color, corAcento: Color
+) {
+    Surface(shape = RoundedCornerShape(14.dp), color = corFundo, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(titulo, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = corTexto)
+                Text(" · $subtitulo", fontSize = 12.sp, color = corTextoFraco)
+            }
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { if (entradas > 0) (gastos / entradas).toFloat().coerceIn(0f, 1f) else if (gastos > 0) 1f else 0f },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                color = if (sobra >= 0) corAcento else Color(0xFFE53935), trackColor = corAcento.copy(alpha = 0.12f),
+                drawStopIndicator = {}
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth()) {
+                EstatisticaResumo(moeda.format(entradas), rotuloEntradas, corTexto, Modifier.weight(1f))
+                EstatisticaResumo(moeda.format(gastos), "Gastos", corTexto, Modifier.weight(1f))
+                EstatisticaResumo(moeda.format(sobra), rotuloSobra, corSobra, Modifier.weight(1f))
+            }
+        }
     }
 }
 
 @Composable
-fun ResumoMiniUI(label: String, valor: Double, icone: ImageVector, cor: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(38.dp).background(cor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(icone, null, tint = cor, modifier = Modifier.size(20.dp)) }
-        Spacer(modifier = Modifier.width(10.dp))
-        Column { Text(label, fontSize = 12.sp, color = Color(0xFF6B7280), fontWeight = FontWeight.Medium); Text("R$ %.2f".format(valor), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF111827)) }
-    }
-}
-
-@Composable
-fun DespesaCardUI(despesa: Despesa, onStatusChange: (String) -> Unit, onEditClick: () -> Unit, onDeleteClick: () -> Unit) {
+fun DashDespesaCard(
+    despesa: Despesa,
+    isDark: Boolean,
+    colorAccent: Color,
+    onStatusChange: (String) -> Unit,
+    onPagamentoCartao: () -> Unit,
+    onEditClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    cartao: Pair<String, String>? = null // (nome, bandeira) do cartão usado, se houver
+) {
     var menuOpen by remember { mutableStateOf(false) }
+    val moeda = remember { java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
 
-    val (colorStatusBg, colorStatusText) = when (despesa.status) {
-        "Pago" -> Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
-        "A pagar" -> Pair(Color(0xFFFFF3E0), Color(0xFFEF6C00))
-        "Próximo Mês" -> Pair(Color(0xFFE3F2FD), Color(0xFF1565C0))
-        "Renegociar" -> Pair(Color(0xFFFFEBEE), Color(0xFFC62828))
-        else -> Pair(Color(0xFFF3F4F6), Color(0xFF6B7280))
+    val pago = despesa.status == "Pago"
+    val ehProjeto = despesa.projetoId != null
+    val azulProjeto = Color(0xFF03A9F4)
+    val corTexto = if (isDark) Color.White else Color(0xFF1A1A1A)
+    val corFraca = Color(0xFF9CA3AF)
+    val corStatus = when (despesa.status) {
+        "Pago" -> Color(0xFF43A047)
+        "A pagar" -> Color(0xFFFB8C00)
+        "Próximo Mês" -> Color(0xFF1E88E5)
+        "Renegociar" -> Color(0xFFE53935)
+        else -> corFraca
     }
+    val corBorda = if (ehProjeto) azulProjeto.copy(alpha = 0.45f) else if (isDark) Color(0xFF2C2C2C) else Color(0xFFE5E7EB)
 
-    Card(
-        modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFFF3F4F6), RoundedCornerShape(20.dp)),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(20.dp)
+    // Linha secundária: vencimento (ou projeto) · tipo · frequência
+    val detalhes = listOfNotNull(
+        if (ehProjeto) "Projeto" else despesa.diaVencimento.takeIf { it > 0 }?.let { "Dia $it" },
+        cartao?.first?.takeIf { it.isNotBlank() },
+        despesa.tipo,
+        despesa.frequencia
+    ).joinToString(" · ")
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (isDark) Color(0xFF1A1A1A) else Color.White,
+        border = BorderStroke(1.dp, corBorda),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(48.dp).background(Color(0xFFF8F9FA), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.AttachMoney, null, tint = Color(0xFF7E57C2), modifier = Modifier.size(24.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
+        Row(Modifier.padding(start = 4.dp, end = 2.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(despesa.descricao, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFF111827))
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(despesa.categoria, fontSize = 12.sp, color = Color.Gray)
-                    if (despesa.diaVencimento > 0) {
-                        Text(" • Dia ${despesa.diaVencimento}", fontSize = 12.sp, color = if (despesa.status != "Pago") Color(0xFFEF5350) else Color.Gray, fontWeight = if(despesa.status != "Pago") FontWeight.Bold else FontWeight.Normal)
+            // Baixa Rápida com 1 Clique
+            IconButton(
+                onClick = { if (despesa.status != "Pago") { if (despesa.cartaoId != null) onPagamentoCartao() else onStatusChange("Pago") } else onStatusChange("A pagar") }
+            ) {
+                Icon(
+                    if (pago) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    if (pago) "Marcar como a pagar" else "Marcar como paga",
+                    tint = if (pago) Color(0xFF43A047) else corFraca
+                )
+            }
+
+            if (ehProjeto) {
+                Box(Modifier.size(42.dp).background(azulProjeto.copy(alpha = 0.14f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Work, null, tint = azulProjeto, modifier = Modifier.size(22.dp))
+                }
+            } else {
+                val logoBandeira = cartao?.second?.let { logoBandeiraCartao(it) }
+                val bordaSelo = if (isDark) Color(0xFF2C2C2C) else Color(0xFFE5E7EB)
+                when {
+                    // Compra no cartão sem marca reconhecida: a bandeira vira o ícone
+                    logoBandeira != null && marcaPorNome(despesa.descricao) == null -> Box(
+                        Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).border(1.dp, bordaSelo, RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(painterResource(logoBandeira), cartao.second, contentScale = ContentScale.Fit, modifier = Modifier.padding(horizontal = 5.dp).fillMaxWidth())
                     }
+                    // Marca reconhecida (ex.: Netflix) no cartão: logo da marca com selo da bandeira no canto
+                    logoBandeira != null -> Box(Modifier.size(46.dp)) {
+                        Box(Modifier.align(Alignment.TopStart)) { IconeLancamento(despesa.descricao, iconeCategoria(despesa.categoria), corCategoria(despesa.categoria)) }
+                        Box(
+                            Modifier.align(Alignment.BottomEnd).size(width = 24.dp, height = 16.dp).clip(RoundedCornerShape(4.dp))
+                                .background(Color.White).border(1.dp, bordaSelo, RoundedCornerShape(4.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(painterResource(logoBandeira), cartao.second, contentScale = ContentScale.Fit, modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp))
+                        }
+                    }
+                    else -> IconeLancamento(despesa.descricao, iconeCategoria(despesa.categoria), corCategoria(despesa.categoria))
                 }
             }
+            Spacer(Modifier.width(12.dp))
 
+            Column(Modifier.weight(1f)) {
+                // Descrição completa, quebrando linha quando for longa (sem cortar com "...")
+                Text(
+                    despesa.descricao, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 19.sp,
+                    color = if (pago) corTexto.copy(alpha = 0.6f) else corTexto
+                )
+                Text(detalhes, fontSize = 12.sp, color = corFraca, maxLines = 1)
+            }
+
+            Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("R$ %.2f".format(despesa.valor), fontWeight = FontWeight.Black, fontSize = 16.sp, color = Color(0xFF111827))
-                    Box {
-                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(28.dp).padding(start = 4.dp)) { Icon(Icons.Default.MoreVert, null, tint = Color.Gray) }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, modifier = Modifier.background(Color.White)) {
-                            val opcoes = listOf("Pago", "A pagar", "Próximo Mês", "Renegociar")
-                            opcoes.forEach { opcao ->
-                                DropdownMenuItem(text = { Text(opcao, fontWeight = FontWeight.Medium) }, onClick = { onStatusChange(opcao); menuOpen = false })
+                Text(moeda.format(despesa.valor), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = corTexto)
+                Text(despesa.status, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = corStatus)
+            }
+
+            Box {
+                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Mais opções", tint = corFraca) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, modifier = Modifier.background(if (isDark) Color(0xFF1A1A1A) else Color.White)) {
+                    listOf(
+                        "Pago" to Icons.Default.CheckCircle,
+                        "A pagar" to Icons.Default.Schedule,
+                        "Próximo Mês" to Icons.Default.EventRepeat,
+                        "Renegociar" to Icons.Default.Handshake
+                    ).forEach { (s, icone) ->
+                        DropdownMenuItem(
+                            text = { Text(s, color = corTexto, fontWeight = if (s == despesa.status) FontWeight.Bold else FontWeight.Normal) },
+                            leadingIcon = { Icon(icone, null, tint = if (s == despesa.status) colorAccent else corFraca) },
+                            trailingIcon = { if (s == despesa.status) Icon(Icons.Default.Check, null, tint = colorAccent) },
+                            onClick = {
+                                if (s == "Pago" && despesa.cartaoId != null) {
+                                    onPagamentoCartao()
+                                } else {
+                                    onStatusChange(s)
+                                }
+                                menuOpen = false
                             }
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text("Editar Informações", fontWeight = FontWeight.Medium) }, onClick = { onEditClick(); menuOpen = false })
-                            DropdownMenuItem(text = { Text("Excluir", color = Color.Red, fontWeight = FontWeight.Medium) }, onClick = { onDeleteClick(); menuOpen = false })
+                        )
+                    }
+                    HorizontalDivider(color = if (isDark) Color(0xFF2C2C2C) else Color(0xFFE5E7EB))
+                    DropdownMenuItem(text = { Text("Editar", color = corTexto) }, leadingIcon = { Icon(Icons.Default.Edit, null, tint = colorAccent) }, onClick = { onEditClick(); menuOpen = false })
+                    DropdownMenuItem(text = { Text("Excluir", color = Color(0xFFE53935)) }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color(0xFFE53935)) }, onClick = { onDeleteClick(); menuOpen = false })
+                }
+            }
+        }
+    }
+}
+
+fun iniciarDownloadAtualizacao(context: android.content.Context, url: String) {
+    try {
+        val downloadManager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+        val urlDireta = url.replace("www.dropbox.com", "dl.dropboxusercontent.com")
+        val uri = urlDireta.toUri()
+        val request = android.app.DownloadManager.Request(uri).apply {
+            setTitle("FluxAí - Atualização"); setDescription("Baixando nova versão...")
+            setMimeType("application/vnd.android.package-archive"); setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "FluxAi_Update.apk")
+            setAllowedOverMetered(true); setAllowedOverRoaming(true)
+        }
+        Toast.makeText(context, "Download iniciado...", Toast.LENGTH_SHORT).show()
+        downloadManager.enqueue(request)
+    } catch (e: Exception) { android.util.Log.e("FLUXAI_ERROR", "Erro: ${e.message}") }
+}
+
+// === INJETADO COM RELEVO E ORGANIZAÇÃO PREMIUM: Câmbio e Mercado (AwesomeAPI) ===
+// Cache em memória: o card sai e volta da tela ao rolar a lista; sem isso ele sumia, buscava de novo e a lista "pulava"
+private var cacheCotacoes: List<Triple<String, String, Color>> = emptyList()
+private var cacheCotacoesEm = 0L
+private const val VALIDADE_COTACOES_MS = 10 * 60 * 1000L
+
+@Composable
+fun CotacoesWidget() {
+    var cotacoes by remember { mutableStateOf(cacheCotacoes) }
+    var carregando by remember { mutableStateOf(cacheCotacoes.isEmpty()) }
+    val isDark = LocalDarkTheme.current
+    val colorSurface = if (isDark) Color(0xFF1A1A1A) else Color.White
+    val colorTextPrimary = if (isDark) Color.White else Color(0xFF1A1A1A)
+    val colorAccent = LocalAccentColor.current
+
+    LaunchedEffect(Unit) {
+        if (cacheCotacoes.isNotEmpty() && System.currentTimeMillis() - cacheCotacoesEm < VALIDADE_COTACOES_MS) return@LaunchedEffect
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val url = java.net.URL("https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,BTC-BRL")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "GET"
+                // FIX: Adicionado cabeçalho User-Agent para contornar o bloqueio 403 da AwesomeAPI
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                conn.connectTimeout = 8000
+
+                if (conn.responseCode == 200) {
+                    val resposta = conn.inputStream.bufferedReader().readText()
+                    val json = org.json.JSONObject(resposta)
+
+                    val usd = json.getJSONObject("USDBRL").getString("bid").toDoubleOrNull() ?: 0.0
+                    val eur = json.getJSONObject("EURBRL").getString("bid").toDoubleOrNull() ?: 0.0
+                    val btcRaw = json.getJSONObject("BTCBRL").getString("bid").toDoubleOrNull() ?: 0.0
+
+                    cotacoes = listOf(
+                        Triple("Dólar", "R$ %.2f".format(usd), Color(0xFFE8F5E8)),
+                        Triple("Euro", "R$ %.2f".format(eur), Color(0xFFE3F2FD)),
+                        Triple("Bitcoin", "R$ %.2f".format(btcRaw / 1000) + "k", Color(0xFFFFF3E0))
+                    )
+                    cacheCotacoes = cotacoes
+                    cacheCotacoesEm = System.currentTimeMillis()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FLUXAI_COTACOES", "Erro: ${e.message}")
+            } finally {
+                carregando = false
+            }
+        }
+    }
+
+    if (!carregando && cotacoes.isNotEmpty()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = colorSurface,
+            border = BorderStroke(1.dp, if (isDark) Color(0xFF2C2C2C) else Color(0xFFE5E7EB))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Ícone global do Card unificado e limpo
+                    Icon(Icons.Default.Language, null, tint = colorAccent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Câmbio e mercado", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorTextPrimary)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    cotacoes.forEach { (moeda, valor, corFundo) ->
+                        val colTexto = when(moeda) {
+                            "Dólar" -> Color(0xFF2E7D32)
+                            "Euro" -> Color(0xFF1565C0)
+                            else -> Color(0xFFE65100)
+                        }
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = if (isDark) corFundo.copy(alpha = 0.08f) else corFundo),
+                            border = BorderStroke(1.dp, colTexto.copy(alpha = 0.15f))
+                        ) {
+                            Column(modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .background(colTexto.copy(alpha = 0.12f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    // CORREÇÃO: Ícones exclusivos e perfeitamente mapeados para cada ativo de mercado
+                                    Icon(
+                                        imageVector = when(moeda) {
+                                            "Dólar" -> Icons.Default.AttachMoney
+                                            "Euro" -> Icons.Default.Payments
+                                            else -> Icons.Default.Toll
+                                        },
+                                        contentDescription = null,
+                                        tint = colTexto,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Text(moeda, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colTexto.copy(alpha = 0.8f))
+                                Spacer(Modifier.height(2.dp))
+                                Text(valor, fontSize = 14.sp, fontWeight = FontWeight.Black, color = colTexto)
+                            }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+// === INJETADO COM RELEVO E ORGANIZAÇÃO PREMIUM: Alerta de Feriados Bancários (Brasil API) ===
+private val cacheFeriados = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>() // ano -> ("MM-dia" -> feriado)
+@Composable
+fun AlertaFeriadosWidget(despesas: List<Despesa>, mesAnoSelecionado: String) {
+    val isDark = LocalDarkTheme.current
+    val partes = mesAnoSelecionado.split("/")
+    val mes = partes.getOrNull(0)
+    val ano = partes.getOrNull(1)
+
+    // Feriados do ano: vêm do cache em memória ou são buscados uma única vez por ano
+    var feriadosAno by remember(ano) { mutableStateOf(ano?.let { cacheFeriados[it] }) }
+    LaunchedEffect(ano) {
+        if (ano == null || feriadosAno != null) return@LaunchedEffect
+        feriadosAno = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val url = java.net.URL("https://brasilapi.com.br/api/feriados/v1/$ano")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "GET"
+
+                if (conn.responseCode == 200) {
+                    val resposta = conn.inputStream.bufferedReader().readText()
+                    val jsonArray = org.json.JSONArray(resposta)
+
+                    // Chave "MM-dia" -> nome do feriado
+                    val feriados = mutableMapOf<String, String>()
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val partesData = obj.getString("date").split("-")
+                        feriados["${partesData[1]}-${partesData[2].toInt()}"] = obj.getString("name")
+                    }
+                    cacheFeriados[ano] = feriados
+                    feriados
+                } else null
+            } catch (e: Exception) {
+                android.util.Log.e("FLUXAI_FERIADOS", "Erro: ${e.message}")
+                null
+            }
+        }
+    }
+
+    // Contas a pagar que vencem em feriado; recalculado direto da lista, sem nova busca na rede
+    val alertasFeriado = feriadosAno?.let { feriados ->
+        despesas.filter { it.status == "A pagar" && it.projetoId == null }
+            .mapNotNull { despesa -> feriados["$mes-${despesa.diaVencimento}"]?.let { despesa to it } }
+    } ?: emptyList()
+
+    if (alertasFeriado.isNotEmpty()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            alertasFeriado.forEach { (despesa, feriado) ->
                 Surface(
-                    shape = RoundedCornerShape(percent = 50),
-                    color = colorStatusBg,
-                    modifier = Modifier.clickable { menuOpen = true }
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isDark) Color(0xFF2C2414) else Color(0xFFFFFDE7),
+                    border = BorderStroke(1.dp, Color(0xFFF57F17).copy(alpha = 0.3f))
                 ) {
-                    Text(despesa.status.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colorStatusText, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), letterSpacing = 0.5.sp)
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color(0xFFF57F17).copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Event, contentDescription = "Feriado", tint = Color(0xFFF57F17), modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(text = "Oportunidade de rendimento", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isDark) Color(0xFFFFB74D) else Color(0xFFE65100))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "A conta '${despesa.descricao}' vence no feriado de $feriado. Você pode manter este dinheiro rendendo e pagar no próximo dia útil sem multas.",
+                                fontWeight = FontWeight.Medium, fontSize = 13.sp, color = if (isDark) Color(0xFFE0E0E0) else Color(0xFF5D4037), lineHeight = 18.sp
+                            )
+                        }
+                    }
                 }
+            }
+        }
+    }
+}
+// =========================================================================
+// ANÁLISE PREDITIVA: projeção do mês corrente a partir do ritmo de gastos
+// =========================================================================
+enum class NivelPrevisao { OK, ATENCAO, RISCO, INFO }
+
+data class PrevisaoFinanceira(
+    val nivel: NivelPrevisao,
+    val titulo: String,
+    val mensagem: String,
+    val diaHoje: Int,
+    val diasNoMes: Int,
+    val ritmoDiario: Double,        // média de gasto variável por dia até hoje
+    val sobraProjetada: Double,     // sobra final estimada no último dia do mês
+    val limiteDiario: Double,       // quanto dá para gastar por dia sem zerar a sobra
+    val diaZera: Int?,              // dia em que a sobra zera no ritmo atual (null = não zera)
+    val contasVencidas: List<Despesa>,
+    val contasProximas: List<Despesa>, // vencem nos próximos 3 dias
+    val projecaoConfiavel: Boolean  // no começo do mês a média ainda oscila muito
+)
+
+private fun brl(v: Double) = "R$ %,.2f".format(Locale("pt", "BR"), v)
+
+fun calcularPrevisao(despesas: List<Despesa>, sobraFinal: Double, totalRenda: Double, hoje: Calendar = Calendar.getInstance()): PrevisaoFinanceira {
+    val diaHoje = hoje.get(Calendar.DAY_OF_MONTH)
+    val diasNoMes = hoje.getActualMaximum(Calendar.DAY_OF_MONTH)
+    val diasRestantes = diasNoMes - diaHoje
+
+    val doMes = despesas.filter { it.projetoId == null && it.status != "Próximo Mês" }
+    val totalVariavel = doMes.filter { it.tipo == "Variável" }.sumOf { it.valor }
+    val ritmoDiario = if (totalVariavel > 0) totalVariavel / diaHoje else 0.0
+
+    // A sobra final já desconta tudo que foi lançado; projeta só o gasto variável que ainda virá
+    val sobraProjetada = sobraFinal - ritmoDiario * diasRestantes
+    val limiteDiario = if (diasRestantes > 0 && sobraFinal > 0) sobraFinal / diasRestantes else 0.0
+    val diaZera = if (sobraFinal > 0 && ritmoDiario > 0) {
+        val dias = (sobraFinal / ritmoDiario).toInt()
+        if (dias < diasRestantes) diaHoje + dias else null
+    } else null
+
+    val aPagar = doMes.filter { it.status == "A pagar" && it.diaVencimento in 1..diasNoMes }
+    val vencidas = aPagar.filter { it.diaVencimento < diaHoje }.sortedBy { it.diaVencimento }
+    val proximas = aPagar.filter { it.diaVencimento in diaHoje..(diaHoje + 3) }.sortedBy { it.diaVencimento }
+    val margem = if (totalRenda > 0) sobraProjetada / totalRenda else 0.0
+
+    val (nivel, titulo, mensagem) = when {
+        sobraFinal <= 0 -> Triple(NivelPrevisao.RISCO, "Orçamento estourado",
+            "Suas despesas já superam a renda do mês em ${brl(-sobraFinal)}. Segure os gastos variáveis e veja o que pode ficar para o próximo mês.")
+        ritmoDiario == 0.0 -> Triple(NivelPrevisao.INFO, "Sem gastos variáveis ainda",
+            "Você pode gastar até ${brl(limiteDiario)} por dia até o fim do mês sem zerar a sobra.")
+        diaZera != null -> Triple(NivelPrevisao.RISCO, "A sobra zera no dia $diaZera",
+            "No ritmo atual de ${brl(ritmoDiario)}/dia, faltariam ${brl(-sobraProjetada)} no fim do mês. Para fechar no azul, limite-se a ${brl(limiteDiario)}/dia.")
+        margem < 0.10 -> Triple(NivelPrevisao.ATENCAO, "Margem apertada",
+            "No ritmo atual de ${brl(ritmoDiario)}/dia, você fecha o mês com só ${brl(sobraProjetada)} de sobra. Qualquer imprevisto pesa.")
+        else -> Triple(NivelPrevisao.OK, "Ritmo saudável",
+            "No ritmo atual de ${brl(ritmoDiario)}/dia, você fecha o mês com cerca de ${brl(sobraProjetada)} de sobra.")
+    }
+
+    return PrevisaoFinanceira(nivel, titulo, mensagem, diaHoje, diasNoMes, ritmoDiario, sobraProjetada, limiteDiario, diaZera, vencidas, proximas, projecaoConfiavel = diaHoje >= 5)
+}
+
+@Composable
+fun CardAnalisePreditiva(previsao: PrevisaoFinanceira, isDark: Boolean) {
+    val (cor, icone) = when (previsao.nivel) {
+        NivelPrevisao.OK -> Color(0xFF2E7D32) to Icons.AutoMirrored.Filled.TrendingUp
+        NivelPrevisao.ATENCAO -> Color(0xFFEF6C00) to Icons.Default.Warning
+        NivelPrevisao.RISCO -> Color(0xFFD32F2F) to Icons.Default.Error
+        NivelPrevisao.INFO -> Color(0xFF1565C0) to Icons.Default.QueryStats
+    }
+    // No tema escuro usa um tom mais claro da cor e fundo translúcido, no lugar dos pastéis fixos
+    val corTexto = if (isDark) androidx.compose.ui.graphics.lerp(cor, Color.White, 0.35f) else cor
+    val corFundo = cor.copy(alpha = if (isDark) 0.18f else 0.10f)
+
+    Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), shape = RoundedCornerShape(16.dp), color = corFundo, border = BorderStroke(1.dp, cor.copy(alpha = 0.25f))) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = icone, contentDescription = null, tint = corTexto, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ANÁLISE PREDITIVA", fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 1.sp, color = corTexto.copy(alpha = 0.8f))
+                    Text(previsao.titulo, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = corTexto)
+                }
+                Text("Dia ${previsao.diaHoje}/${previsao.diasNoMes}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = corTexto.copy(alpha = 0.8f))
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(previsao.mensagem, fontSize = 13.sp, lineHeight = 18.sp, color = corTexto.copy(alpha = 0.95f))
+
+            // Quanto do mês já passou
+            Spacer(modifier = Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = { previsao.diaHoje.toFloat() / previsao.diasNoMes },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = corTexto, trackColor = cor.copy(alpha = 0.15f)
+            )
+
+            if (previsao.ritmoDiario > 0 || previsao.limiteDiario > 0) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Sobra no fim do mês", fontSize = 11.sp, color = corTexto.copy(alpha = 0.75f))
+                        Text(brl(previsao.sobraProjetada), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = corTexto)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Pode gastar por dia", fontSize = 11.sp, color = corTexto.copy(alpha = 0.75f))
+                        Text(brl(previsao.limiteDiario), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = corTexto)
+                    }
+                }
+            }
+
+            if (previsao.contasVencidas.isNotEmpty()) {
+                val qtd = previsao.contasVencidas.size
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    "$qtd ${if (qtd == 1) "conta vencida" else "contas vencidas"} sem pagamento: ${brl(previsao.contasVencidas.sumOf { it.valor })}",
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (isDark) Color(0xFFEF9A9A) else Color(0xFFC62828)
+                )
+            }
+            if (previsao.contasProximas.isNotEmpty()) {
+                val nomes = previsao.contasProximas.take(3).joinToString(", ") { "${it.descricao} (dia ${it.diaVencimento})" }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Vencem nos próximos 3 dias: $nomes", fontSize = 12.sp, color = corTexto.copy(alpha = 0.85f))
+            }
+
+            if (!previsao.projecaoConfiavel && previsao.ritmoDiario > 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Início do mês: a projeção ainda pode variar bastante.", fontSize = 11.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = corTexto.copy(alpha = 0.7f))
             }
         }
     }
