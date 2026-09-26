@@ -1413,7 +1413,7 @@ fun DashDespesaCard(
                     despesa.descricao, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 19.sp,
                     color = if (pago) corTexto.copy(alpha = 0.6f) else corTexto
                 )
-                Text(detalhes, fontSize = 12.sp, color = corFraca, maxLines = 1)
+                Text(detalhes, fontSize = 12.sp, color = corFraca, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
 
             Spacer(Modifier.width(8.dp))

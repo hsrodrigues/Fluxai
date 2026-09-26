@@ -252,6 +252,8 @@ class MainActivity : FragmentActivity() {
 
         val sairDoApp = {
             Firebase.auth.signOut()
+            // Esquece a conta conjunta em uso: senão a próxima conta logada neste aparelho tentaria abrir os dados da anterior
+            getSharedPreferences("AppPrefs", MODE_PRIVATE).edit { remove("workspace_uid"); remove("workspace_nome") }
             navController.navigate("login") {
                 popUpTo(0) { inclusive = true }
             }

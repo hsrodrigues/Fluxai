@@ -54,13 +54,15 @@ O **FluxAí** é um aplicativo Android nativo para controle financeiro pessoal e
 
 ## 📱 Telas do Aplicativo
 
-<p float="left">
-  <img src="https://github.com/user-attachments/assets/221d7f42-c0a4-4d4f-b095-a1056c6752e5" width="200" />
-  <img src="https://github.com/user-attachments/assets/bdfcae17-2d5e-4f0b-b689-1eadfbffbc41" width="200" />
-  <img src="https://github.com/user-attachments/assets/1902d160-9960-4b5e-8bb6-4a8e1b7e94e8" width="200" />
-  <img src="https://github.com/user-attachments/assets/519c92f4-ea7c-4af8-9d5a-59ddba357c4c" width="200" />
-  <img src="https://github.com/user-attachments/assets/3f2f5325-e116-4eba-bfbf-722a5042abcf" width="200" />
-</p>
+> Prints feitos com uma conta de demonstração e dados fictícios.
+
+| Splash | Login | Dashboard | Lançamentos | Menu |
+|:---:|:---:|:---:|:---:|:---:|
+| <img src="docs/prints/splash.jpg" width="170" /> | <img src="docs/prints/login.jpg" width="170" /> | <img src="docs/prints/dashboard.jpg" width="170" /> | <img src="docs/prints/lancamentos.jpg" width="170" /> | <img src="docs/prints/menu.jpg" width="170" /> |
+
+| Novo lançamento | Análise BI | Cartões | Cofre / Metas | Assinaturas |
+|:---:|:---:|:---:|:---:|:---:|
+| <img src="docs/prints/novo_lancamento.jpg" width="170" /> | <img src="docs/prints/analise.jpg" width="170" /> | <img src="docs/prints/cartoes.jpg" width="170" /> | <img src="docs/prints/caixinhas.jpg" width="170" /> | <img src="docs/prints/assinaturas.jpg" width="170" /> |
 
 ## ⚙️ Como rodar o projeto localmente
 
