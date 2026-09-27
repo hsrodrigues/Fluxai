@@ -359,6 +359,9 @@ fun HomeScreen(
     val cameraComprovanteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { sucesso ->
         if (sucesso) comprovanteUri = imageUri
     }
+    val pdfComprovanteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) comprovanteUri = uri
+    }
     val galeriaComprovanteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) comprovanteUri = uri
     }
@@ -760,21 +763,25 @@ fun HomeScreen(
                 // Comprovante (foto do recibo): fica ligado ao lançamento e aparece no relatório do IR
                 TituloSecaoLancamento("Comprovante", colorTextSecondary)
                 if (comprovanteUri == null) {
+                    // Três opções lado a lado: textos curtos e sem quebra de linha
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { abrirCamera("comprovante") }, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.PhotoCamera, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Tirar foto")
+                        listOf(
+                            Triple("Foto", Icons.Default.PhotoCamera) { abrirCamera("comprovante") },
+                            Triple("Galeria", Icons.Default.PhotoLibrary) { galeriaComprovanteLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            Triple("PDF", Icons.Default.PictureAsPdf) { pdfComprovanteLauncher.launch(arrayOf("application/pdf")) }
+                        ).forEach { (rotulo, icone, acao) ->
+                            OutlinedButton(onClick = acao, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)) {
+                                Icon(icone, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(rotulo, maxLines = 1, softWrap = false)
+                            }
                         }
-                        OutlinedButton(
-                            onClick = { galeriaComprovanteLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                            shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)
-                        ) { Icon(Icons.Default.PhotoLibrary, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Galeria") }
                     }
                 } else {
+                    val ehPdf = context.contentResolver.getType(comprovanteUri!!) == "application/pdf"
                     Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF43A047).copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Receipt, null, tint = Color(0xFF43A047))
+                            Icon(if (ehPdf) Icons.Default.PictureAsPdf else Icons.Default.Receipt, null, tint = Color(0xFF43A047))
                             Spacer(Modifier.width(10.dp))
-                            Text("Comprovante anexado", color = colorTextPrimary, modifier = Modifier.weight(1f))
+                            Text(if (ehPdf) "PDF anexado" else "Foto do comprovante anexada", color = colorTextPrimary, modifier = Modifier.weight(1f))
                             IconButton(onClick = { comprovanteUri = null }) { Icon(Icons.Default.Close, "Remover comprovante", tint = colorTextSecondary) }
                         }
                     }

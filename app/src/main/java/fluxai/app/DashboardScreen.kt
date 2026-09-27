@@ -1288,6 +1288,11 @@ fun DashboardScreen(
             if (d != null && uri != null) enviarComprovanteComAviso(context, workspaceUid, d, uri, coroutineScope)
             despesaParaComprovante = null
         }
+        val pdfComprovante = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+            val d = despesaParaComprovante
+            if (d != null && uri != null) enviarComprovanteComAviso(context, workspaceUid, d, uri, coroutineScope)
+            despesaParaComprovante = null
+        }
         val permissaoCamera = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
             if (ok) {
                 val arquivo = java.io.File.createTempFile("comprovante_", ".jpg", context.cacheDir)
@@ -1302,17 +1307,22 @@ fun DashboardScreen(
                 shape = RoundedCornerShape(28.dp),
                 icon = { Icon(Icons.Default.Receipt, null, tint = colorAccent) },
                 title = { Text("Anexar comprovante", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
-                text = { Text("Foto do recibo ou nota de \"${d.descricao}\". Ela fica guardada com o lançamento e ajuda na declaração do IR.", color = colorTextSecondary) },
-                confirmButton = {
-                    Button(onClick = { permissaoCamera.launch(android.Manifest.permission.CAMERA) }, colors = ButtonDefaults.buttonColors(containerColor = colorAccent)) {
-                        Icon(Icons.Default.PhotoCamera, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Câmera")
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Foto ou PDF do recibo de \"${d.descricao}\". Fica guardado com o lançamento e ajuda na declaração do IR.", color = colorTextSecondary)
+                        Spacer(Modifier.height(4.dp))
+                        listOf(
+                            Triple("Tirar foto", Icons.Default.PhotoCamera) { permissaoCamera.launch(android.Manifest.permission.CAMERA) },
+                            Triple("Escolher da galeria", Icons.Default.PhotoLibrary) { galeriaComprovante.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            Triple("Escolher PDF", Icons.Default.PictureAsPdf) { pdfComprovante.launch(arrayOf("application/pdf")) }
+                        ).forEach { (rotulo, icone, acao) ->
+                            OutlinedButton(onClick = acao, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                Icon(icone, null, Modifier.size(18.dp), tint = colorAccent); Spacer(Modifier.width(8.dp)); Text(rotulo, color = colorAccent, modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 },
-                dismissButton = {
-                    TextButton(onClick = { galeriaComprovante.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                        Icon(Icons.Default.PhotoLibrary, null, Modifier.size(18.dp), tint = colorAccent); Spacer(Modifier.width(6.dp)); Text("Galeria", color = colorAccent)
-                    }
-                }
+                confirmButton = { TextButton(onClick = { despesaParaComprovante = null }) { Text("Cancelar", color = colorTextSecondary) } }
             )
         }
         despesaVerComprovante?.let { d ->

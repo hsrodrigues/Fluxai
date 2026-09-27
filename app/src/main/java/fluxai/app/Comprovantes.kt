@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,11 +34,15 @@ import java.io.ByteArrayOutputStream
 // =========================================================================
 // COMPROVANTES
 // Foto do recibo/nota ligada a um lançamento, guardada no Firebase Storage em
-// usuarios/{conta}/comprovantes/{lançamento}.jpg. A imagem é reduzida antes do envio.
+// usuarios/{conta}/comprovantes/{lançamento}.jpg (ou .pdf). A imagem é reduzida antes do envio;
+// o PDF sobe como está, até 10 MB.
 // =========================================================================
 private const val LADO_MAXIMO = 1600
+private const val PDF_MAXIMO = 10 * 1024 * 1024
 
-private fun caminhoComprovante(workspaceUid: String, despesaId: String) = "usuarios/$workspaceUid/comprovantes/$despesaId.jpg"
+private fun caminhoComprovante(workspaceUid: String, despesaId: String, extensao: String) = "usuarios/$workspaceUid/comprovantes/$despesaId.$extensao"
+
+fun comprovanteEhPdf(caminho: String?) = caminho?.endsWith(".pdf", ignoreCase = true) == true
 
 // Reduz para no máximo 1600 px e JPEG 80%: um recibo fica com ~200 KB
 private fun comprimirImagem(context: Context, uri: Uri): ByteArray {
@@ -52,10 +57,21 @@ private fun comprimirImagem(context: Context, uri: Uri): ByteArray {
     return ByteArrayOutputStream().use { saida -> final.compress(Bitmap.CompressFormat.JPEG, 80, saida); saida.toByteArray() }
 }
 
+class ComprovanteGrande : Exception("O PDF passa de 10 MB.")
+
 suspend fun enviarComprovante(context: Context, workspaceUid: String, despesaId: String, uri: Uri) {
-    val bytes = withContext(Dispatchers.Default) { comprimirImagem(context, uri) }
-    val caminho = caminhoComprovante(workspaceUid, despesaId)
-    Firebase.storage.reference.child(caminho).putBytes(bytes, StorageMetadata.Builder().setContentType("image/jpeg").build()).await()
+    val pdf = context.contentResolver.getType(uri) == "application/pdf"
+    val bytes = withContext(Dispatchers.IO) {
+        if (pdf) context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Arquivo inválido")
+        else comprimirImagem(context, uri)
+    }
+    if (bytes.size > PDF_MAXIMO) throw ComprovanteGrande()
+    val caminho = caminhoComprovante(workspaceUid, despesaId, if (pdf) "pdf" else "jpg")
+    val tipo = if (pdf) "application/pdf" else "image/jpeg"
+    Firebase.storage.reference.child(caminho).putBytes(bytes, StorageMetadata.Builder().setContentType(tipo).build()).await()
+    // Trocou de foto para PDF (ou o contrário): apaga o arquivo antigo com a outra extensão
+    val antigo = Firebase.firestore.collection("usuarios").document(workspaceUid).collection("despesas").document(despesaId).get().await().getString("comprovante")
+    if (antigo != null && antigo != caminho) runCatching { Firebase.storage.reference.child(antigo).delete().await() }
     Firebase.firestore.collection("usuarios").document(workspaceUid).collection("despesas").document(despesaId).update("comprovante", caminho).await()
 }
 
@@ -65,7 +81,7 @@ suspend fun removerComprovante(workspaceUid: String, despesa: Despesa) {
 }
 
 // Mensagem clara para as falhas de envio mais comuns (sem o texto técnico do Firebase)
-fun mensagemErroComprovante(e: Throwable): String = when ((e as? com.google.firebase.storage.StorageException)?.errorCode) {
+fun mensagemErroComprovante(e: Throwable): String = if (e is ComprovanteGrande) "O PDF passa de 10 MB. Escolha um arquivo menor." else when ((e as? com.google.firebase.storage.StorageException)?.errorCode) {
     com.google.firebase.storage.StorageException.ERROR_OBJECT_NOT_FOUND,
     com.google.firebase.storage.StorageException.ERROR_BUCKET_NOT_FOUND -> "O armazenamento de comprovantes ainda não está ativo no servidor."
     com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED -> "Sem permissão para salvar o comprovante nesta conta."
@@ -84,6 +100,8 @@ fun DialogoComprovante(despesa: Despesa, workspaceUid: String, c: CoresTela, onF
     var falhou by remember { mutableStateOf(false) }
     var removendo by remember { mutableStateOf(false) }
     val escopo = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pdf = comprovanteEhPdf(despesa.comprovante)
     LaunchedEffect(despesa.comprovante) {
         url = runCatching { Firebase.storage.reference.child(despesa.comprovante ?: "").downloadUrl.await().toString() }.getOrNull()
         falhou = url == null
@@ -99,6 +117,20 @@ fun DialogoComprovante(despesa: Despesa, workspaceUid: String, c: CoresTela, onF
                 when {
                     falhou -> Text("Não foi possível abrir o comprovante. Confira a conexão.", color = c.textoFraco)
                     url == null -> CircularProgressIndicator(color = c.destaque)
+                    // PDF abre no leitor do celular (o link é temporário e só funciona para quem tem acesso)
+                    pdf -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.PictureAsPdf, null, tint = Color(0xFFE53935), modifier = Modifier.size(56.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Comprovante em PDF", color = c.texto, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))) }
+                                    .onFailure { android.widget.Toast.makeText(context, "Nenhum app para abrir PDF.", android.widget.Toast.LENGTH_SHORT).show() }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = c.destaque)
+                        ) { Text("Abrir PDF") }
+                    }
                     else -> AsyncImage(
                         model = url, contentDescription = "Comprovante de ${despesa.descricao}",
                         contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))

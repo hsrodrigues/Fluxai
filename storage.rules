@@ -12,9 +12,10 @@ service firebase.storage {
         );
       }
       allow read, delete: if podeAcessar();
-      // Só imagens de até 5 MB
+      // Só imagens ou PDF, até 10 MB
       allow write: if podeAcessar()
-        && (request.resource == null || (request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*')));
+        && (request.resource == null || (request.resource.size < 10 * 1024 * 1024
+            && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf')));
     }
   }
 }
