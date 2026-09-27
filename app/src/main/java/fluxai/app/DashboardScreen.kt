@@ -229,9 +229,11 @@ fun DashboardScreen(
     }
     LaunchedEffect(retomadas) {
         if (System.currentTimeMillis() - atualizacaoVerificadaEm < INTERVALO_VERIFICAR_ATUALIZACAO_MS) return@LaunchedEffect
-        atualizacaoVerificadaEm = System.currentTimeMillis()
+        // Ao abrir, o ON_RESUME logo em seguida reinicia este efeito e cancela a consulta em andamento:
+        // por isso o horário só é marcado depois da resposta (senão a verificação nunca terminava)
         val remota = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { buscarUltimaVersaoGithub() }
-        if (remota == null) { atualizacaoVerificadaEm = 0L; return@LaunchedEffect } // falhou a rede: tenta de novo na próxima volta
+            ?: return@LaunchedEffect // falhou a rede: tenta de novo na próxima volta
+        atualizacaoVerificadaEm = System.currentTimeMillis()
         if (remota.versao > BuildConfig.VERSION_CODE) {
             vServidorState = remota.versao
             updateUrl = remota.urlApk
