@@ -67,8 +67,11 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
     var carregando by remember { mutableStateOf(false) }
     var categorizando by remember { mutableStateOf(false) }
     var importando by remember { mutableStateOf(false) }
-    var somarEntradas by remember { mutableStateOf(false) }
     var textoBruto by remember { mutableStateOf<String?>(null) }
+    // Extrato da conta: só o saldo final interessa (os gastos já são registrados no app)
+    var saldoLido by remember { mutableStateOf<SaldoExtrato?>(null) }
+    var saldoTexto by remember { mutableStateOf("") }
+    var atualizandoSaldo by remember { mutableStateOf(false) }
 
     var cartoes by remember { mutableStateOf<List<Cartao>>(emptyList()) }
     var contas by remember { mutableStateOf<List<ContaBancaria>>(emptyList()) }
@@ -118,16 +121,50 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
 
     fun processar(texto: String, nome: String) = processarItens { withContext(Dispatchers.Default) { lerExtrato(nome, texto, fatura) } }
 
+    // Lê só o saldo final do extrato da conta (OFX, CSV com coluna de saldo ou PDF via IA)
+    fun processarSaldo(obterSaldo: suspend () -> SaldoExtrato?) {
+        carregando = true
+        escopo.launch {
+            val saldo = try { obterSaldo() } catch (e: Exception) {
+                Toast.makeText(context, when (e) {
+                    is PdfProtegido -> "Este PDF tem senha. Baixe o extrato sem senha no app do banco, ou use o arquivo OFX/CSV."
+                    is FalhaIA -> e.message ?: "Falha ao ler o PDF."
+                    else -> "Não foi possível ler o arquivo."
+                }, Toast.LENGTH_LONG).show()
+                null
+            }
+            carregando = false
+            saldoLido = saldo
+            saldoTexto = saldo?.valor?.paraCampo() ?: ""
+            if (saldo == null) Toast.makeText(context, "Não encontrei o saldo nesse arquivo. Você pode ajustar o saldo direto em Contas bancárias.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun atualizarSaldoConta() {
+        val id = contaId ?: run { Toast.makeText(context, "Escolha a conta deste extrato.", Toast.LENGTH_SHORT).show(); return }
+        val valor = saldoTexto.paraValor() ?: run { Toast.makeText(context, "Confira o valor do saldo.", Toast.LENGTH_SHORT).show(); return }
+        atualizandoSaldo = true
+        refConta(workspaceUid, id).update("saldo", valor)
+            .addOnSuccessListener {
+                val conta = contas.firstOrNull { it.id == id }?.nome ?: "conta"
+                Toast.makeText(context, "Saldo de $conta atualizado para ${moeda.format(valor)}.", Toast.LENGTH_LONG).show()
+                registrarAuditoria("Atualizou o saldo de $conta pelo extrato")
+                navegar("contas")
+            }
+            .addOnFailureListener { Toast.makeText(context, "Não foi possível atualizar: ${it.message}", Toast.LENGTH_LONG).show() }
+            .addOnCompleteListener { atualizandoSaldo = false }
+    }
+
     val seletor = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         val nome = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cur ->
             if (cur.moveToFirst()) cur.getString(0) else null
         } ?: "extrato"
-        // PDF: texto lido por OCR e lançamentos separados pela IA (não depende do sinal dos valores)
+        // PDF: texto lido por OCR e a IA separa os lançamentos (fatura) ou acha o saldo (extrato da conta)
         if (context.contentResolver.getType(uri) == "application/pdf" || nome.lowercase().endsWith(".pdf")) {
             nomeArquivo = nome
             textoBruto = null
-            processarItens { lerPdfExtrato(context, uri) }
+            if (fatura) processarItens { lerPdfExtrato(context, uri) } else processarSaldo { lerSaldoPdf(context, uri) }
             return@rememberLauncherForActivityResult
         }
         val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
@@ -137,11 +174,12 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
         val texto = if ('�' in utf8) String(bytes, Charset.forName("ISO-8859-1")) else utf8
         nomeArquivo = nome
         textoBruto = texto
-        processar(texto, nome)
+        if (fatura) processar(texto, nome)
+        else processarSaldo { if (nome.lowercase().endsWith(".ofx") || "<OFX>" in texto.uppercase()) lerSaldoOFX(texto) else lerSaldoCSV(texto) }
     }
 
-    // Reprocessa se o usuário trocar entre extrato de conta e fatura de cartão (o sinal dos valores muda)
-    LaunchedEffect(fatura) { val t = textoBruto; val n = nomeArquivo; if (t != null && n != null) processar(t, n) }
+    // Trocar entre extrato e fatura muda o que se lê do arquivo: recomeça do zero
+    LaunchedEffect(fatura) { linhas = emptyList(); saldoLido = null; saldoTexto = ""; nomeArquivo = null; textoBruto = null }
 
     fun categorizarComIA() {
         val saidas = linhas.withIndex().filter { !it.value.item.entrada }
@@ -165,8 +203,7 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
 
     fun importar() {
         val escolhidas = linhas.filter { it.marcada && !it.item.entrada }
-        val entradas = if (somarEntradas && !fatura) linhas.filter { it.marcada && it.item.entrada } else emptyList()
-        if (escolhidas.isEmpty() && entradas.isEmpty()) return
+        if (escolhidas.isEmpty()) return
         if (fatura && cartaoId == null) { Toast.makeText(context, "Escolha o cartão desta fatura.", Toast.LENGTH_SHORT).show(); return }
         importando = true
         escopo.launch {
@@ -199,12 +236,6 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                     }
                     lote.commit().await()
                 }
-                // Entradas somam na renda extra de cada mês
-                entradas.groupBy { it.item.data.mesAno }.forEach { (mes, itens) ->
-                    val total = itens.sumOf { it.item.valor }
-                    usuarioDoc.collection("saldos").document(mes.replace("/", "-"))
-                        .set(mapOf("extra" to FieldValue.increment(total), "valor" to FieldValue.increment(total)), SetOptions.merge()).await()
-                }
             }.onSuccess {
                 Toast.makeText(context, "${escolhidas.size} lançamentos importados.", Toast.LENGTH_LONG).show()
                 registrarAuditoria("Importou ${escolhidas.size} lançamentos de extrato")
@@ -221,9 +252,12 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                 item {
                     Surface(shape = RoundedCornerShape(20.dp), color = c.superficie, border = BorderStroke(1.dp, c.divisor), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Traga o mês inteiro de uma vez", fontWeight = FontWeight.Bold, color = c.texto)
-                            Text("Escolha a fatura ou o extrato em PDF, OFX ou CSV (baixe no app do banco). Você revisa tudo antes de importar.",
-                                fontSize = 13.sp, color = c.textoFraco, lineHeight = 18.sp)
+                            Text(if (fatura) "Compras da fatura de uma vez" else "Saldo da conta pelo extrato", fontWeight = FontWeight.Bold, color = c.texto)
+                            Text(
+                                if (fatura) "Escolha a fatura em PDF, OFX ou CSV (baixe no app do banco). Você revisa as compras antes de importar."
+                                else "Escolha o extrato em PDF, OFX ou CSV. O app lê só o saldo final e atualiza a conta; nenhum lançamento é importado.",
+                                fontSize = 13.sp, color = c.textoFraco, lineHeight = 18.sp
+                            )
                             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                                 listOf(false to "Extrato da conta", true to "Fatura do cartão").forEachIndexed { i, (valor, rotulo) ->
                                     SegmentedButton(
@@ -234,7 +268,7 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                             }
                             val opcoes = if (fatura) cartoes.map { it.id to it.nome } else contas.map { it.id to it.nome }
                             if (opcoes.isNotEmpty()) {
-                                Text(if (fatura) "Cartão desta fatura" else "Conta do extrato (opcional)", fontSize = 12.sp, color = c.textoFraco)
+                                Text(if (fatura) "Cartão desta fatura" else "Conta deste extrato", fontSize = 12.sp, color = c.textoFraco)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     opcoes.forEach { (id, nome) ->
                                         val sel = if (fatura) cartaoId == id else contaId == id
@@ -249,8 +283,10 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                                 }
                             } else if (fatura) {
                                 Text("Cadastre o cartão em Cartões antes de importar a fatura.", fontSize = 12.sp, color = Color(0xFFE53935))
+                            } else {
+                                Text("Cadastre a conta em Contas bancárias para atualizar o saldo dela.", fontSize = 12.sp, color = Color(0xFFE53935))
+                                TextButton(onClick = { navegar("contas") }) { Text("Abrir Contas bancárias", color = c.destaque) }
                             }
-                            if (!fatura) Text("O saldo da conta no app não muda: o extrato já está refletido no saldo do banco.", fontSize = 11.sp, color = c.textoFraco)
                             Button(
                                 onClick = { seletor.launch(arrayOf("application/pdf", "text/*", "application/x-ofx", "application/ofx", "application/vnd.ms-excel", "application/octet-stream")) },
                                 enabled = !carregando && !importando, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp),
@@ -266,6 +302,34 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
 
                 if (carregando) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.destaque) } }
 
+                // Extrato da conta: saldo encontrado, editável, para conferir antes de gravar
+                if (!fatura && !carregando && saldoLido != null) {
+                    item {
+                        Surface(shape = RoundedCornerShape(20.dp), color = c.superficie, border = BorderStroke(1.dp, c.destaque.copy(alpha = 0.4f)), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    "Saldo no extrato" + (saldoLido?.data?.let { " em %02d/%02d/%04d".format(it.dia, it.mes, it.ano) } ?: ""),
+                                    fontSize = 12.sp, color = c.textoFraco
+                                )
+                                OutlinedTextField(
+                                    value = saldoTexto, onValueChange = { saldoTexto = it.filter { ch -> ch.isDigit() || ch in ",.-" } },
+                                    prefix = { Text("R$ ") }, singleLine = true, label = { Text("Confira o saldo") },
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                                    modifier = Modifier.fillMaxWidth(), shape = FormatoCampo, colors = coresCampoTela(c)
+                                )
+                                Button(
+                                    onClick = { atualizarSaldoConta() }, enabled = !atualizandoSaldo && contaId != null,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = c.destaque)
+                                ) {
+                                    if (atualizandoSaldo) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                    else Text(contaId?.let { id -> "Atualizar saldo de ${contas.firstOrNull { it.id == id }?.nome ?: "conta"}" } ?: "Escolha a conta acima")
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (linhas.isNotEmpty() && !carregando) {
                     item {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -278,12 +342,7 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                         }
                         val duplicadas = linhas.count { it.duplicada }
                         if (duplicadas > 0) Text("$duplicadas já parecem estar no app e vieram desmarcadas.", fontSize = 12.sp, color = Color(0xFFFB8C00))
-                        if (!fatura && linhas.any { it.item.entrada }) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { somarEntradas = !somarEntradas }) {
-                                Checkbox(checked = somarEntradas, onCheckedChange = { somarEntradas = it }, colors = CheckboxDefaults.colors(checkedColor = c.destaque))
-                                Text("Somar as entradas marcadas na renda extra do mês", fontSize = 13.sp, color = c.texto)
-                            }
-                        }
+
                     }
                     itemsIndexed(linhas) { i, l ->
                         val corValor = if (l.item.entrada) Color(0xFF43A047) else c.texto
@@ -337,14 +396,16 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                     }
                 }
 
-                if (linhas.isEmpty() && !carregando && nomeArquivo == null) {
+                if (linhas.isEmpty() && saldoLido == null && !carregando && nomeArquivo == null) {
                     item {
                         Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.size(80.dp).background(c.destaque.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.Description, null, Modifier.size(40.dp), tint = c.destaque)
                             }
                             Spacer(Modifier.height(12.dp))
-                            Text("Formatos aceitos: PDF da fatura ou extrato (lido com IA), OFX (todos os bancos) e CSV (Nubank, Inter, C6 e planilhas com data, descrição e valor).",
+                            Text(
+                                if (fatura) "Formatos aceitos: PDF da fatura (lido com IA), OFX e CSV (Nubank, Inter, C6 e planilhas com data, descrição e valor)."
+                                else "Formatos aceitos: PDF do extrato (lido com IA), OFX e CSV com coluna de saldo.",
                                 fontSize = 12.sp, color = c.textoFraco, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
                         }
                     }
@@ -355,7 +416,7 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                 Surface(color = c.fundo) {
                     Button(
                         onClick = { importar() },
-                        enabled = !importando && (marcadasSaida.isNotEmpty() || (somarEntradas && linhas.any { it.marcada && it.item.entrada })),
+                        enabled = !importando && marcadasSaida.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 52.dp),
                         shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = c.destaque)
                     ) {

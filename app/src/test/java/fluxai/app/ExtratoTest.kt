@@ -104,3 +104,27 @@ class ExtratoPdfTest {
         assertEquals(DataSimples(15, 12, 2026), item.data)
     }
 }
+
+class SaldoExtratoTest {
+    @Test
+    fun saldoDoOfx() {
+        val ofx = "<OFX><STMTRS><BANKTRANLIST></BANKTRANLIST><LEDGERBAL><BALAMT>1520.35<DTASOF>20260927120000[-3:BRT]</LEDGERBAL><AVAILBAL><BALAMT>1400.00</AVAILBAL></STMTRS></OFX>"
+        assertEquals(SaldoExtrato(1520.35, DataSimples(27, 9, 2026)), lerSaldoOFX(ofx))
+    }
+
+    @Test
+    fun saldoDoCsvEmOrdemCrescenteEDecrescente() {
+        val crescente = "Data;Descrição;Valor;Saldo\n10/09/2026;Pix;-50,00;950,00\n12/09/2026;Mercado;-100,00;850,00\n"
+        assertEquals(850.0, lerSaldoCSV(crescente)!!.valor, 0.001)
+        val decrescente = "Data;Descrição;Valor;Saldo\n12/09/2026;Mercado;-100,00;850,00\n10/09/2026;Pix;-50,00;950,00\n"
+        assertEquals(850.0, lerSaldoCSV(decrescente)!!.valor, 0.001)
+        assertEquals(null, lerSaldoCSV("Data,Valor,Descrição\n10/09/2026,-50.00,Pix\n"))
+    }
+
+    @Test
+    fun saldoDaIA() {
+        assertEquals(SaldoExtrato(-80.0, DataSimples(27, 9, 2026)), lerRespostaSaldoIA("27/09/2026|-80.00"))
+        assertEquals(1234.56, lerRespostaSaldoIA("27/09/2026|1.234,56")!!.valor, 0.001)
+        assertEquals(null, lerRespostaSaldoIA("SEM_SALDO"))
+    }
+}

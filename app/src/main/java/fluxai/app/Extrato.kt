@@ -100,3 +100,49 @@ fun lerCSVExtrato(texto: String, fatura: Boolean): List<ItemExtrato> {
 
 fun lerExtrato(nomeArquivo: String, texto: String, fatura: Boolean): List<ItemExtrato> =
     if (nomeArquivo.lowercase().endsWith(".ofx") || "<OFX>" in texto.uppercase()) lerOFX(texto) else lerCSVExtrato(texto, fatura)
+
+// =========================================================================
+// SALDO DO EXTRATO DA CONTA
+// No extrato da conta só interessa o saldo final: os gastos o usuário já registra no app.
+// =========================================================================
+data class SaldoExtrato(val valor: Double, val data: DataSimples?)
+
+private fun dataOfx(texto: String?): DataSimples? =
+    texto?.takeIf { it.length >= 8 && it.take(8).all(Char::isDigit) }?.let { DataSimples(it.substring(6, 8).toInt(), it.substring(4, 6).toInt(), it.substring(0, 4).toInt()) }
+
+// OFX: bloco LEDGERBAL (saldo contábil) ou, na falta dele, AVAILBAL (disponível)
+fun lerSaldoOFX(texto: String): SaldoExtrato? =
+    listOf("LEDGERBAL", "AVAILBAL").firstNotNullOfOrNull { bloco ->
+        val trecho = Regex("<$bloco>(.*?)(</$bloco>|<(?:AVAILBAL|LEDGERBAL|/STMTRS|/CCSTMTRS)>)", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(texto)?.groupValues?.get(1) ?: return@firstNotNullOfOrNull null
+        val valor = Regex("<BALAMT>([^<\r\n]+)", RegexOption.IGNORE_CASE).find(trecho)?.groupValues?.get(1)?.trim()?.replace(",", ".")?.toDoubleOrNull()
+            ?: return@firstNotNullOfOrNull null
+        SaldoExtrato(valor, dataOfx(Regex("<DTASOF>([^<\r\n]+)", RegexOption.IGNORE_CASE).find(trecho)?.groupValues?.get(1)?.trim()))
+    }
+
+// CSV com coluna "Saldo": pega o saldo da linha mais recente (o arquivo pode vir em ordem crescente ou decrescente)
+fun lerSaldoCSV(texto: String): SaldoExtrato? {
+    val linhas = texto.removePrefix("﻿").lines().filter { it.isNotBlank() }
+    if (linhas.size < 2) return null
+    val separador = listOf(';', ',', '\t').maxBy { s -> linhas.first().count { it == s } }
+    val colunas = dividirLinhaCsv(linhas.first(), separador).map { it.lowercase() }
+    val iSaldo = colunas.indexOfFirst { "saldo" in it }.takeIf { it >= 0 } ?: return null
+    val iData = colunas.indexOfFirst { "data" in it || "date" in it }
+    val registros = linhas.drop(1).mapNotNull { l ->
+        val campos = dividirLinhaCsv(l, separador)
+        val saldo = campos.getOrNull(iSaldo)?.replace("R$", "")?.replace(" ", "")?.paraValor() ?: return@mapNotNull null
+        SaldoExtrato(saldo, campos.getOrNull(iData)?.let { lerDataTexto(it) })
+    }
+    if (registros.isEmpty()) return null
+    fun chave(d: DataSimples?) = d?.let { it.ano * 10000 + it.mes * 100 + it.dia } ?: 0
+    val decrescente = chave(registros.first().data) > chave(registros.last().data)
+    return if (decrescente) registros.first() else registros.last()
+}
+
+// Resposta da IA para o PDF: "DD/MM/AAAA|VALOR" (valor pode ser negativo)
+fun lerRespostaSaldoIA(resposta: String): SaldoExtrato? {
+    val m = Regex("""(\d{1,2}/\d{1,2}/\d{2,4})?\s*\|\s*(-?[\d.,]+)""").find(resposta) ?: return null
+    val bruto = m.groupValues[2]
+    val valor = (if (',' in bruto) bruto.paraValor() else bruto.toDoubleOrNull()) ?: return null
+    return SaldoExtrato(valor, m.groupValues[1].takeIf { it.isNotBlank() }?.let { lerDataTexto(it) })
+}

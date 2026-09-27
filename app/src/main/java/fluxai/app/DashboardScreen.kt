@@ -216,12 +216,23 @@ fun DashboardScreen(
         mesNome = SimpleDateFormat("MMMM yyyy", localeBR).format(calendar.time).replaceFirstChar { it.uppercase() }
     }
 
-    // Nova versão: consulta o último GitHub Release uma vez por abertura do app
-    LaunchedEffect(Unit) {
-        if (atualizacaoVerificada) return@LaunchedEffect
-        atualizacaoVerificada = true
+    // Nova versão: consulta o último GitHub Release ao abrir e sempre que o app volta para a tela,
+    // no máximo a cada 30 min (o Android mantém o app vivo em segundo plano, então "reabrir" nem sempre recria a tela)
+    val ciclo = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var retomadas by remember { mutableIntStateOf(0) }
+    DisposableEffect(ciclo) {
+        val observador = androidx.lifecycle.LifecycleEventObserver { _, evento ->
+            if (evento == androidx.lifecycle.Lifecycle.Event.ON_RESUME) retomadas++
+        }
+        ciclo.lifecycle.addObserver(observador)
+        onDispose { ciclo.lifecycle.removeObserver(observador) }
+    }
+    LaunchedEffect(retomadas) {
+        if (System.currentTimeMillis() - atualizacaoVerificadaEm < INTERVALO_VERIFICAR_ATUALIZACAO_MS) return@LaunchedEffect
+        atualizacaoVerificadaEm = System.currentTimeMillis()
         val remota = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { buscarUltimaVersaoGithub() }
-        if (remota != null && remota.versao > BuildConfig.VERSION_CODE) {
+        if (remota == null) { atualizacaoVerificadaEm = 0L; return@LaunchedEffect } // falhou a rede: tenta de novo na próxima volta
+        if (remota.versao > BuildConfig.VERSION_CODE) {
             vServidorState = remota.versao
             updateUrl = remota.urlApk
             mostrarUpdateDialog = true
@@ -1587,7 +1598,8 @@ fun DashDespesaCard(
 }
 
 // Evita consultar o GitHub de novo a cada volta ao dashboard
-private var atualizacaoVerificada = false
+private var atualizacaoVerificadaEm = 0L
+private const val INTERVALO_VERIFICAR_ATUALIZACAO_MS = 30 * 60 * 1000L
 
 // === INJETADO COM RELEVO E ORGANIZAÇÃO PREMIUM: Câmbio e Mercado (AwesomeAPI) ===
 // Cache em memória: o card sai e volta da tela ao rolar a lista; sem isso ele sumia, buscava de novo e a lista "pulava"

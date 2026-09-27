@@ -79,3 +79,16 @@ suspend fun lerPdfExtrato(context: Context, uri: Uri): List<ItemExtrato> {
     val hoje = Calendar.getInstance()
     return lerLinhasFaturaIA(resposta, DataSimples(hoje.get(Calendar.DAY_OF_MONTH), hoje.get(Calendar.MONTH) + 1, hoje.get(Calendar.YEAR)))
 }
+
+private val SistemaSaldo = """
+    Você recebe o texto (OCR) de um extrato de conta bancária brasileira.
+    Responda APENAS o saldo final mais recente da conta, no formato exato: DD/MM/AAAA|VALOR
+    VALOR com ponto decimal, sem R$, com sinal de menos se o saldo for negativo (ex.: 1520.35 ou -80.00).
+    Se não houver saldo no texto, responda só: SEM_SALDO
+""".trimIndent()
+
+suspend fun lerSaldoPdf(context: Context, uri: Uri): SaldoExtrato? {
+    val texto = textoDoPdf(context, uri)
+    if (texto.isBlank()) return null
+    return lerRespostaSaldoIA(chamarIA("ocr", SistemaSaldo, texto))
+}
