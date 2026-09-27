@@ -217,7 +217,7 @@ fun DashboardScreen(
     }
 
     // Nova versão: consulta o último GitHub Release ao abrir e sempre que o app volta para a tela,
-    // no máximo a cada 30 min (o Android mantém o app vivo em segundo plano, então "reabrir" nem sempre recria a tela)
+    // no máximo a cada 2 min (o Android mantém o app vivo em segundo plano, então "reabrir" nem sempre recria a tela)
     val ciclo = androidx.lifecycle.compose.LocalLifecycleOwner.current
     var retomadas by remember { mutableIntStateOf(0) }
     DisposableEffect(ciclo) {
@@ -1599,7 +1599,7 @@ fun DashDespesaCard(
 
 // Evita consultar o GitHub de novo a cada volta ao dashboard
 private var atualizacaoVerificadaEm = 0L
-private const val INTERVALO_VERIFICAR_ATUALIZACAO_MS = 30 * 60 * 1000L
+private const val INTERVALO_VERIFICAR_ATUALIZACAO_MS = 2 * 60 * 1000L // o GitHub aceita 60 consultas/hora sem login
 
 // === INJETADO COM RELEVO E ORGANIZAÇÃO PREMIUM: Câmbio e Mercado (AwesomeAPI) ===
 // Cache em memória: o card sai e volta da tela ao rolar a lista; sem isso ele sumia, buscava de novo e a lista "pulava"
