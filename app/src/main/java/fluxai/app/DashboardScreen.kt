@@ -181,25 +181,16 @@ fun DashboardScreen(
         mesNome = SimpleDateFormat("MMMM yyyy", localeBR).format(calendar.time).replaceFirstChar { it.uppercase() }
     }
 
-    DisposableEffect(Unit) {
-        val ouvintes = mutableListOf<ListenerRegistration>()
-        try {
-            ouvintes += banco.collection("app_config").document("atualizacao").addSnapshotListener { snapshot, _ ->
-                if (snapshot != null && snapshot.exists()) {
-                    val vServidor = snapshot.getLong("versao") ?: 0L
-                    val url = snapshot.getString("link") ?: ""
-                    val vAtual = BuildConfig.VERSION_CODE.toLong()
-
-                    if (vServidor > vAtual && url.isNotEmpty()) {
-                        vServidorState = vServidor
-                        updateUrl = url
-                        mostrarUpdateDialog = true
-                    }
-                }
-            }
-        } catch (e: Exception) { e.printStackTrace() }
-        // Desliga os ouvintes ao sair da tela ou trocar a chave (ex.: mês), senão eles se acumulam
-        onDispose { ouvintes.forEach { it.remove() } }
+    // Nova versão: consulta o último GitHub Release uma vez por abertura do app
+    LaunchedEffect(Unit) {
+        if (atualizacaoVerificada) return@LaunchedEffect
+        atualizacaoVerificada = true
+        val remota = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { buscarUltimaVersaoGithub() }
+        if (remota != null && remota.versao > BuildConfig.VERSION_CODE) {
+            vServidorState = remota.versao
+            updateUrl = remota.urlApk
+            mostrarUpdateDialog = true
+        }
     }
 
     DisposableEffect(mesAnoSelecionado, workspaceUid) {
@@ -1258,7 +1249,7 @@ fun DashboardScreen(
 
                             Spacer(Modifier.height(20.dp))
                             Button(
-                                onClick = { iniciarDownloadAtualizacao(context, updateUrl); mostrarUpdateDialog = false },
+                                onClick = { baixarEInstalarApk(context, updateUrl, vServidorState); mostrarUpdateDialog = false },
                                 modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = colorAccent)
                             ) {
@@ -1454,21 +1445,8 @@ fun DashDespesaCard(
     }
 }
 
-fun iniciarDownloadAtualizacao(context: android.content.Context, url: String) {
-    try {
-        val downloadManager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-        val urlDireta = url.replace("www.dropbox.com", "dl.dropboxusercontent.com")
-        val uri = urlDireta.toUri()
-        val request = android.app.DownloadManager.Request(uri).apply {
-            setTitle("FluxAí - Atualização"); setDescription("Baixando nova versão...")
-            setMimeType("application/vnd.android.package-archive"); setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "FluxAi_Update.apk")
-            setAllowedOverMetered(true); setAllowedOverRoaming(true)
-        }
-        Toast.makeText(context, "Download iniciado...", Toast.LENGTH_SHORT).show()
-        downloadManager.enqueue(request)
-    } catch (e: Exception) { android.util.Log.e("FLUXAI_ERROR", "Erro: ${e.message}") }
-}
+// Evita consultar o GitHub de novo a cada volta ao dashboard
+private var atualizacaoVerificada = false
 
 // === INJETADO COM RELEVO E ORGANIZAÇÃO PREMIUM: Câmbio e Mercado (AwesomeAPI) ===
 // Cache em memória: o card sai e volta da tela ao rolar a lista; sem isso ele sumia, buscava de novo e a lista "pulava"

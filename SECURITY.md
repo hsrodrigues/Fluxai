@@ -25,7 +25,7 @@ No seu e-mail, inclua:
 
 Você receberá uma confirmação de recebimento em até 48 horas. Tentarei corrigir o problema o mais rápido possível e lançar uma atualização segura.
 
-## ⚠️ Notas Importantes para Contribuidores
+## ⚠️ Arquivos que nunca devem ir para o repositório
 
 O FluxAí utiliza serviços em nuvem (Firebase) e Inteligência Artificial (Google Gemini). Para manter o repositório seguro, certifique-se de **absolutamente nunca** incluir os seguintes arquivos nos seus *commits*:
 

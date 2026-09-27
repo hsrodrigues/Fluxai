@@ -1,21 +1,32 @@
-MIT License
+Licença Proprietária — FluxAí
 
-Copyright (c) 2026 Hudson
+Copyright (c) 2026 Hudson Santos Rodrigues. Todos os direitos reservados.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Fluxaí"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Este software, incluindo código-fonte, binários (APK), recursos visuais,
+marca e documentação (o "Software"), é propriedade exclusiva do autor.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+O código-fonte está visível publicamente apenas para consulta. Nenhuma
+licença é concedida além do que está expressamente descrito abaixo.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1. É PERMITIDO baixar e instalar o APK oficial, distribuído pelos
+   GitHub Releases deste repositório, para uso pessoal e não comercial.
+
+2. NÃO É PERMITIDO, sem autorização prévia e por escrito do autor:
+   a) copiar, modificar, adaptar ou criar obras derivadas do Software;
+   b) redistribuir, publicar, sublicenciar, vender ou alugar o Software,
+      no todo ou em parte, em código-fonte ou em forma compilada;
+   c) usar o Software, ou partes dele, em outros projetos, comerciais
+      ou não;
+   d) fazer engenharia reversa, descompilar ou desmontar o APK, exceto
+      quando a lei aplicável permitir expressamente;
+   e) usar o nome ou a marca "FluxAí" para identificar outro produto.
+
+3. O Software é fornecido "no estado em que se encontra", sem garantias
+   de qualquer tipo, expressas ou implícitas. Em nenhuma hipótese o autor
+   será responsável por danos, perdas de dados ou prejuízos decorrentes
+   do uso ou da impossibilidade de uso do Software.
+
+4. O descumprimento destes termos encerra automaticamente qualquer
+   permissão de uso concedida.
+
+Para pedidos de autorização, entre em contato: hsrodrigues01@gmail.com

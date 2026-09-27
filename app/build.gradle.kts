@@ -28,7 +28,8 @@ fun currentVersion(): Int {
 
     return current
 }
-val verCode = currentVersion()
+// No GitHub Actions a versão vem da tag (-PversionCodeCI=N) e o arquivo não é tocado
+val verCode = (findProperty("versionCodeCI") as String?)?.toInt() ?: currentVersion()
 
 android {
     namespace = "fluxai.app"

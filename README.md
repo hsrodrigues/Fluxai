@@ -107,16 +107,14 @@ firebase deploy --only functions
   ```
 * O número da versão é incrementado automaticamente a cada build (`app/version.properties`).
 
-## 🤝 Contribuindo
+## 🚀 Publicando uma versão
 
-1. Faça um fork do projeto
-2. Crie sua branch (`git checkout -b feature/NovaFuncionalidade`)
-3. Faça o commit (`git commit -m 'Adiciona nova funcionalidade'`)
-4. Faça o push (`git push origin feature/NovaFuncionalidade`)
-5. Abra um Pull Request
+1. Faça o commit das alterações.
+2. Rode `.\publicar.ps1` — ele cria a tag `v1.0.N` e envia ao GitHub.
+3. O GitHub Actions compila o APK e cria o [Release](https://github.com/hsrodrigues/Fluxai/releases/latest); o app avisa os usuários da nova versão e instala a atualização.
 
 ## 📄 Licença
 
-Distribuído sob a licença MIT. Veja [LICENSE](LICENSE) para mais informações.
+Software proprietário. O código está visível apenas para consulta; cópia, modificação e redistribuição não são permitidas sem autorização. Veja [LICENSE](LICENSE).
 
 Desenvolvido com 💜 e Jetpack Compose por [Hudson](https://github.com/hsrodrigues).
