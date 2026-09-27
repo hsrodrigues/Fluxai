@@ -85,3 +85,9 @@ fun calcularAcerto(despesas: List<Despesa>, uidAtual: String, nomeAtual: String)
     }
     return AcertoContas(participantes, total, cota, transferencias)
 }
+
+// ---------- Fatura do cartão ----------
+// Quanto cada cartão tem em aberto: compras no cartão que ainda não foram pagas (todas as parcelas lançadas)
+fun faturaEmAberto(despesas: List<Despesa>): Map<String, Double> =
+    despesas.filter { !it.cartaoId.isNullOrBlank() && it.cartaoId != "Saldo Conta" && it.status != "Pago" }
+        .groupBy { it.cartaoId!! }.mapValues { (_, l) -> l.sumOf { it.valor } }

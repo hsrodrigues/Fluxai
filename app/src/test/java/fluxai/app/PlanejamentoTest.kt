@@ -67,3 +67,17 @@ class PlanejamentoTest {
         assertNull(calcularAcerto(listOf(d("Aluguel", 1500.0)), "a", "Ana"))
     }
 }
+
+class FaturaCartaoTest {
+    @Test
+    fun somaSoOQueEstaEmAbertoNoCartao() {
+        val despesas = listOf(
+            Despesa(id = "1", valor = 100.0, cartaoId = "c1", status = "A pagar", mesAno = "09/2026"),
+            Despesa(id = "2", valor = 50.0, cartaoId = "c1", status = "A pagar", mesAno = "10/2026"),
+            Despesa(id = "3", valor = 70.0, cartaoId = "c1", status = "Pago"),
+            Despesa(id = "4", valor = 30.0, cartaoId = null, status = "A pagar"),
+            Despesa(id = "5", valor = 20.0, cartaoId = "c2", status = "Próximo Mês")
+        )
+        assertEquals(mapOf("c1" to 150.0, "c2" to 20.0), faturaEmAberto(despesas))
+    }
+}
