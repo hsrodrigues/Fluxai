@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
     id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
+    id("com.google.firebase.crashlytics")
 }
 
 // LÓGICA DE VERSÃO
@@ -89,6 +90,8 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
+    implementation("com.google.firebase:firebase-storage")      // comprovantes
+    implementation("com.google.firebase:firebase-crashlytics")  // relatório de falhas
 
     // Navegação e Utilidades
     implementation("androidx.navigation:navigation-compose:2.8.5")
@@ -103,6 +106,7 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.0")
     implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")  // boleto e Pix
     // Testes
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

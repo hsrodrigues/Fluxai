@@ -53,11 +53,18 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import fluxai.app.ui.theme.LocalAccentColor
 import fluxai.app.ui.theme.LocalDarkTheme
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+
+// Pedido para abrir o leitor de código assim que a tela aparecer (atalho do ícone ou do widget)
+var pedidoLeitorCodigo by mutableStateOf(false)
+
+// Tarefas que precisam terminar mesmo se o usuário sair da tela (envio do comprovante, aviso de orçamento)
+private val escopoApp = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -124,6 +131,11 @@ fun HomeScreen(
     var cartaoSelecionadoId by remember { mutableStateOf("Saldo Conta") }
     var cartaoSelecionadoNome by remember { mutableStateOf("Saldo Conta / Pix") }
     var expandidoCartao by remember { mutableStateOf(false) }
+    var contasList by remember { mutableStateOf<List<ContaBancaria>>(emptyList()) }
+    var jaPago by remember { mutableStateOf(false) }
+    var comprovanteUri by remember { mutableStateOf<Uri?>(null) }
+    var lendoCodigo by remember { mutableStateOf(false) }
+    var codigoLido by remember { mutableStateOf<String?>(null) }
     // =========================================================================
 
     val colorAccent = LocalAccentColor.current
@@ -163,6 +175,15 @@ fun HomeScreen(
                             } catch (e: Exception) { null }
                         }
                         cartoesNumerosMap = numMap
+                    }
+                }
+
+            // Contas bancárias: a primeira já vem escolhida como forma de pagamento
+            ouvintes += Firebase.firestore.collection("usuarios").document(workspaceUid).collection("contas")
+                .addSnapshotListener { snap, _ ->
+                    if (snap != null) {
+                        contasList = snap.documents.map { d -> ContaBancaria(d.id, d.getString("nome") ?: "", d.getString("tipo") ?: "Corrente") }.sortedBy { it.nome.lowercase() }
+                        if (cartaoSelecionadoId == "Saldo Conta" && contasList.isNotEmpty()) cartaoSelecionadoId = "conta:" + contasList.first().id
                     }
                 }
 
@@ -300,25 +321,76 @@ fun HomeScreen(
         }
     }
 
-    val permissaoCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { concedida ->
-        if (concedida) {
-            try {
-                val file = File(context.cacheDir, "temp_nota.jpg")
-                if (!file.exists()) file.createNewFile()
-                val uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    file
-                )
-                imageUri = uri
-                cameraLauncher.launch(uri)
-            } catch (e: Exception) {
-                Toast.makeText(context, "Erro FileProvider: Verifique file_paths.xml", Toast.LENGTH_LONG).show()
-                Log.e("FluxAi_Provider", "Erro: ${e.message}")
+    // Preenche o formulário com o que veio do código de barras ou do Pix
+    fun aplicarCodigo(dados: DadosPagamento) {
+        dados.valor?.let { valor = it.paraCampo() }
+        dados.vencimento?.let { v -> diaVencimento = v.dia.toString(); mesAnoSelecionado = v.mesAno }
+        if (descricao.isBlank()) descricao = dados.beneficiario ?: if (dados.tipo == "Pix") "Pix" else dados.tipo
+        codigoLido = dados.codigo
+        if (dados.tipo != "Pix") { tipoDespesa = "Fixa"; if (categoriaDespesa == "Outros" && dados.tipo == "Conta de consumo") categoriaDespesa = "Moradia" }
+        Toast.makeText(context, buildString {
+            append("${dados.tipo} lido")
+            if (dados.valor == null) append(": informe o valor")
+            if (dados.vencimento == null && dados.tipo != "Pix") append(". Confira o vencimento")
+        }, Toast.LENGTH_LONG).show()
+    }
+
+    // Foto do código: o ML Kit lê o código de barras do boleto (ITF) ou o QR Code do Pix
+    val cameraCodigoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { sucesso ->
+        val uri = imageUri
+        if (!sucesso || uri == null) return@rememberLauncherForActivityResult
+        lendoCodigo = true
+        runCatching {
+            val imagem = InputImage.fromFilePath(context, uri)
+            val opcoes = com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ITF, com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE, com.google.mlkit.vision.barcode.common.Barcode.FORMAT_CODE_128)
+                .build()
+            com.google.mlkit.vision.barcode.BarcodeScanning.getClient(opcoes).process(imagem)
+                .addOnSuccessListener { codigos ->
+                    val dados = codigos.firstNotNullOfOrNull { it.rawValue?.let { v -> interpretarCodigoPagamento(v) } }
+                    if (dados != null) aplicarCodigo(dados)
+                    else Toast.makeText(context, "Não achei um boleto ou Pix na foto. Aproxime e deixe o código reto.", Toast.LENGTH_LONG).show()
+                    lendoCodigo = false
+                }
+                .addOnFailureListener { lendoCodigo = false; Toast.makeText(context, "Falha ao ler o código.", Toast.LENGTH_SHORT).show() }
+        }.onFailure { lendoCodigo = false }
+    }
+
+    val cameraComprovanteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { sucesso ->
+        if (sucesso) comprovanteUri = imageUri
+    }
+    val galeriaComprovanteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) comprovanteUri = uri
+    }
+
+    // "ocr" = nota fiscal com IA, "codigo" = boleto/Pix, "comprovante" = foto do recibo
+    var modoCameraPendente by remember { mutableStateOf("ocr") }
+    fun abrirCameraAgora(modo: String) {
+        try {
+            val file = File.createTempFile("foto_fluxai_", ".jpg", context.cacheDir)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            imageUri = uri
+            when (modo) {
+                "codigo" -> cameraCodigoLauncher.launch(uri)
+                "comprovante" -> cameraComprovanteLauncher.launch(uri)
+                else -> cameraLauncher.launch(uri)
             }
-        } else {
-            Toast.makeText(context, "A câmera é necessária para ler a nota fiscal.", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "Não foi possível abrir a câmera.", Toast.LENGTH_LONG).show()
+            Log.e("FluxAi_Provider", "Erro: ${e.message}")
         }
+    }
+    val permissaoCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { concedida ->
+        if (concedida) abrirCameraAgora(modoCameraPendente)
+        else Toast.makeText(context, "A câmera é necessária para ler a nota, o código ou o comprovante.", Toast.LENGTH_LONG).show()
+    }
+    fun abrirCamera(modo: String) {
+        modoCameraPendente = modo
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) abrirCameraAgora(modo)
+        else permissaoCameraLauncher.launch(Manifest.permission.CAMERA)
+    }
+    LaunchedEffect(pedidoLeitorCodigo) {
+        if (pedidoLeitorCodigo) { pedidoLeitorCodigo = false; abrirCamera("codigo") }
     }
 
     // Grava o lançamento (usada pelo botão fixo do rodapé)
@@ -344,27 +416,41 @@ fun HomeScreen(
             val dbRef = Firebase.firestore.collection("usuarios").document(workspaceUid).collection("despesas")
             // Tudo num lote só: ou grava todas as parcelas, ou nenhuma
             val lote = Firebase.firestore.batch()
+            val contaId = cartaoSelecionadoId.takeIf { it.startsWith("conta:") }?.removePrefix("conta:")
+            val cartaoId = cartaoSelecionadoId.takeIf { it != "Saldo Conta" && contaId == null }
+            val primeiraRef = dbRef.document()
+            // "Já foi pago" vale para a primeira parcela; compras no cartão ficam a pagar até a fatura
+            val pagoAgora = jaPago && cartaoId == null
 
             for (i in 1..numParcelas) {
-                val baseDesc = if (cartaoSelecionadoId != "Saldo Conta") "[Cartão] $descricao" else descricao
+                val baseDesc = if (cartaoId != null) "[Cartão] $descricao" else descricao
                 val descricaoFinal = if (isParcelado) "$baseDesc ($i/$numParcelas)" else baseDesc
                 val mesAnoFormatado = String.format(Locale("pt", "BR"), "%02d/%04d", mesAtualLoop, anoAtualLoop)
 
+                val pagoEsta = pagoAgora && i == 1
+                val obsFinal = listOfNotNull(observacao.ifBlank { null }, codigoLido?.let { "Código: $it" }).joinToString("\n")
                 val despesaMap = hashMapOf(
                     "descricao" to descricaoFinal,
                     "valor" to vFinal,
                     "diaVencimento" to dFinal,
                     "tipo" to tipoDespesa,
                     "categoria" to categoriaDespesa,
-                    "status" to "A pagar",
+                    "status" to if (pagoEsta) "Pago" else "A pagar",
                     "mesAno" to mesAnoFormatado,
-                    "observacao" to observacao,
+                    "observacao" to obsFinal,
                     "frequencia" to frequenciaDespesa,
-                    "cartaoId" to if (cartaoSelecionadoId == "Saldo Conta") null else cartaoSelecionadoId,
-                    "projetoId" to projetoSelecionadoId
+                    "cartaoId" to cartaoId,
+                    "contaId" to contaId,
+                    "projetoId" to projetoSelecionadoId,
+                    "pagoPor" to if (pagoEsta) usuario?.uid else null,
+                    "pagoPorNome" to if (pagoEsta) usuario?.displayName?.split(" ")?.firstOrNull() else null,
+                    "criadoEm" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                 )
 
-                lote.set(dbRef.document(), despesaMap)
+                lote.set(if (i == 1) primeiraRef else dbRef.document(), despesaMap)
+                if (pagoEsta && contaId != null) {
+                    lote.update(refConta(workspaceUid, contaId), "saldo", com.google.firebase.firestore.FieldValue.increment(-vFinal))
+                }
 
                 mesAtualLoop++
                 if (mesAtualLoop > 12) {
@@ -373,10 +459,10 @@ fun HomeScreen(
                 }
             }
 
-            if (cartaoSelecionadoId != "Saldo Conta" && cartoesList.any { it.id == cartaoSelecionadoId }) {
+            if (cartaoId != null && cartoesList.any { it.id == cartaoId }) {
                 // Incremento no servidor: dois lançamentos ao mesmo tempo não se sobrescrevem
                 lote.update(
-                    Firebase.firestore.collection("usuarios").document(workspaceUid).collection("cartoes").document(cartaoSelecionadoId),
+                    Firebase.firestore.collection("usuarios").document(workspaceUid).collection("cartoes").document(cartaoId),
                     "faturaAtual", com.google.firebase.firestore.FieldValue.increment(vFinal * numParcelas)
                 )
             }
@@ -384,6 +470,31 @@ fun HomeScreen(
             // Com o cache offline do Firestore o lote fica salvo no aparelho e sobe quando houver internet
             lote.commit().addOnFailureListener { e ->
                 Toast.makeText(context, "Falha ao salvar: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+            val appContext = context.applicationContext
+            val uriComprovante = comprovanteUri
+            val categoria = categoriaDespesa
+            val mesDoLancamento = mesAnoSelecionado
+            escopoApp.launch {
+                // O comprovante sobe em segundo plano, ligado à primeira parcela
+                if (uriComprovante != null) {
+                    runCatching { enviarComprovante(appContext, workspaceUid, primeiraRef.id, uriComprovante) }
+                        .onFailure { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(appContext, "Lançamento salvo, mas o comprovante não subiu: ${it.message}", Toast.LENGTH_LONG).show() } }
+                }
+                // Avisa na hora se a categoria passou de 80% do limite do mês
+                runCatching {
+                    val usuarioDoc = Firebase.firestore.collection("usuarios").document(workspaceUid)
+                    val limite = (usuarioDoc.collection("configuracoes").document("limites").get().await().get(categoria) as? Number)?.toDouble() ?: 0.0
+                    if (limite > 0) {
+                        val doMes = usuarioDoc.collection("despesas").whereEqualTo("mesAno", mesDoLancamento).get().await().documents.map { lerDespesa(it) }
+                        alertasOrcamento(doMes, mapOf(categoria to limite)).firstOrNull()?.let { a ->
+                            val fmt = java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR"))
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                Toast.makeText(appContext, "Atenção: $categoria já usou ${(a.uso * 100).toInt()}% do limite (${fmt.format(a.gasto)} de ${fmt.format(a.limite)}).", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
             }
             salvando = false
             Toast.makeText(context, if (numParcelas > 1) "$numParcelas parcelas registradas!" else "Despesa registrada!", Toast.LENGTH_SHORT).show()
@@ -419,7 +530,7 @@ fun HomeScreen(
                     title = { Text("Novo Lançamento", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorTextPrimary) },
                     navigationIcon = {
                         IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, null, tint = colorTextPrimary)
+                            Icon(Icons.Default.Menu, "Abrir menu", tint = colorTextPrimary)
                         }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = colorBg)
@@ -447,19 +558,6 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 val coresCampo = OutlinedTextFieldDefaults.colors(focusedBorderColor = colorAccent, unfocusedBorderColor = colorDivider, focusedTextColor = colorTextPrimary, unfocusedTextColor = colorTextPrimary)
-                val abrirCamera: () -> Unit = {
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        try {
-                            val file = File.createTempFile("nota_fluxai_", ".jpg", context.cacheDir)
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                            imageUri = uri
-                            cameraLauncher.launch(uri)
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Não foi possível abrir a câmera.", Toast.LENGTH_LONG).show()
-                            Log.e("FluxAi_Provider", "Erro: ${e.message}")
-                        }
-                    } else permissaoCameraLauncher.launch(Manifest.permission.CAMERA)
-                }
 
                 // ===== VALOR EM DESTAQUE =====
                 Surface(shape = RoundedCornerShape(24.dp), color = colorSurface, border = BorderStroke(1.dp, colorDivider), modifier = Modifier.fillMaxWidth()) {
@@ -483,18 +581,43 @@ fun HomeScreen(
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
-                        if (processandoIA) {
+                        if (processandoIA || lendoCodigo) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(CircleShape), color = colorAccent)
-                            Text("Lendo a nota com IA...", fontSize = 12.sp, color = colorAccent)
+                            Text(if (lendoCodigo) "Lendo o código..." else "Lendo a nota com IA...", fontSize = 12.sp, color = colorAccent)
                         } else {
-                            AssistChip(
-                                onClick = abrirCamera,
-                                label = { Text("Ler nota ou boleto com a câmera") },
-                                leadingIcon = { Icon(Icons.Default.DocumentScanner, null, Modifier.size(18.dp), tint = colorAccent) },
-                                shape = RoundedCornerShape(50),
-                                border = BorderStroke(1.dp, colorAccent.copy(alpha = 0.4f)),
-                                colors = AssistChipDefaults.assistChipColors(labelColor = colorAccent)
-                            )
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                AssistChip(
+                                    onClick = { abrirCamera("ocr") },
+                                    label = { Text("Ler nota com IA") },
+                                    leadingIcon = { Icon(Icons.Default.DocumentScanner, null, Modifier.size(18.dp), tint = colorAccent) },
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, colorAccent.copy(alpha = 0.4f)),
+                                    colors = AssistChipDefaults.assistChipColors(labelColor = colorAccent)
+                                )
+                                AssistChip(
+                                    onClick = { abrirCamera("codigo") },
+                                    label = { Text("Boleto ou Pix") },
+                                    leadingIcon = { Icon(Icons.Default.QrCodeScanner, null, Modifier.size(18.dp), tint = colorAccent) },
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, colorAccent.copy(alpha = 0.4f)),
+                                    colors = AssistChipDefaults.assistChipColors(labelColor = colorAccent)
+                                )
+                                AssistChip(
+                                    onClick = {
+                                        // Linha digitável ou Pix Copia e Cola copiados de outro app
+                                        val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val texto = cb.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                                        val dados = interpretarCodigoPagamento(texto)
+                                        if (dados != null) aplicarCodigo(dados)
+                                        else Toast.makeText(context, "Copie a linha digitável do boleto ou o Pix Copia e Cola e toque de novo.", Toast.LENGTH_LONG).show()
+                                    },
+                                    label = { Text("Colar código") },
+                                    leadingIcon = { Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp), tint = colorAccent) },
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, colorAccent.copy(alpha = 0.4f)),
+                                    colors = AssistChipDefaults.assistChipColors(labelColor = colorAccent)
+                                )
+                            }
                         }
                     }
                 }
@@ -545,7 +668,10 @@ fun HomeScreen(
                 // ===== PAGAMENTO =====
                 TituloSecaoLancamento("Pagamento", colorTextSecondary)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val opcoes = listOf(Triple("Saldo Conta", "Conta / Pix", Icons.Default.AccountBalance)) +
+                    // Com contas cadastradas, cada uma vira uma opção (o saldo dela é atualizado ao pagar)
+                    val opcoesConta = if (contasList.isEmpty()) listOf(Triple("Saldo Conta", "Conta / Pix", Icons.Default.AccountBalance))
+                        else contasList.map { Triple("conta:" + it.id, it.nome, iconeTipoConta(it.tipo)) }
+                    val opcoes = opcoesConta +
                         cartoesList.map { c ->
                             val final4 = (cartoesNumerosMap[c.id] ?: "").filter { it.isDigit() }.takeLast(4)
                             Triple(c.id, if (final4.isNotEmpty()) "${c.nome} •$final4" else c.nome, Icons.Default.CreditCard)
@@ -560,6 +686,22 @@ fun HomeScreen(
                             colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colorAccent.copy(alpha = 0.14f), selectedLabelColor = colorAccent, selectedLeadingIconColor = colorAccent, labelColor = colorTextPrimary, iconColor = colorTextSecondary),
                             border = FilterChipDefaults.filterChipBorder(enabled = true, selected = sel, borderColor = colorDivider, selectedBorderColor = colorAccent)
                         )
+                    }
+                }
+
+                // Já pago: só para conta/Pix (no cartão, a compra fica a pagar até a fatura)
+                val noCartao = cartaoSelecionadoId != "Saldo Conta" && !cartaoSelecionadoId.startsWith("conta:")
+                if (!noCartao) {
+                    Surface(shape = RoundedCornerShape(16.dp), color = colorSurface, border = BorderStroke(1.dp, colorDivider), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.TaskAlt, null, tint = Color(0xFF43A047))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Já foi pago", fontWeight = FontWeight.Medium, color = colorTextPrimary)
+                                Text(if (contasList.isNotEmpty()) "Desconta do saldo da conta escolhida" else "Entra como pago no mês", fontSize = 12.sp, color = colorTextSecondary)
+                            }
+                            Switch(checked = jaPago, onCheckedChange = { jaPago = it }, colors = SwitchDefaults.colors(checkedTrackColor = colorAccent))
+                        }
                     }
                 }
 
@@ -615,6 +757,29 @@ fun HomeScreen(
                     }
                 }
 
+                // Comprovante (foto do recibo): fica ligado ao lançamento e aparece no relatório do IR
+                TituloSecaoLancamento("Comprovante", colorTextSecondary)
+                if (comprovanteUri == null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { abrirCamera("comprovante") }, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.PhotoCamera, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Tirar foto")
+                        }
+                        OutlinedButton(
+                            onClick = { galeriaComprovanteLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)
+                        ) { Icon(Icons.Default.PhotoLibrary, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Galeria") }
+                    }
+                } else {
+                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF43A047).copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Receipt, null, tint = Color(0xFF43A047))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Comprovante anexado", color = colorTextPrimary, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { comprovanteUri = null }) { Icon(Icons.Default.Close, "Remover comprovante", tint = colorTextSecondary) }
+                        }
+                    }
+                }
+
                 // Observação recolhida até ser pedida
                 var mostrarObs by remember { mutableStateOf(observacao.isNotBlank()) }
                 if (mostrarObs) {
@@ -642,9 +807,9 @@ fun HomeScreen(
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { anoTemp-- }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = colorTextPrimary) }
+                        IconButton(onClick = { anoTemp-- }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Ano anterior", tint = colorTextPrimary) }
                         Text(anoTemp.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = colorAccent)
-                        IconButton(onClick = { anoTemp++ }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = colorTextPrimary) }
+                        IconButton(onClick = { anoTemp++ }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Próximo ano", tint = colorTextPrimary) }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     val rows = mesesAbrev.chunked(4)

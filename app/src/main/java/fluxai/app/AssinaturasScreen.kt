@@ -109,7 +109,7 @@ fun AssinaturasScreen(
             topBar = {
                 CenterAlignedTopAppBar(
                     title = { Text("Assinaturas e contas fixas", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorTextPrimary) },
-                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, null, tint = colorTextPrimary) } },
+                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, "Abrir menu", tint = colorTextPrimary) } },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = colorBg)
                 )
             },

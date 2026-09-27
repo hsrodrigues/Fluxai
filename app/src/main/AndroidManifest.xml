@@ -63,7 +63,38 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/atalhos" />
         </activity>
+
+        <!-- Lê notificações de apps de banco para sugerir lançamentos (o usuário ativa nas configurações do Android) -->
+        <service
+            android:name=".LeitorNotificacoesBanco"
+            android:exported="false"
+            android:label="@string/leitor_notificacoes"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Bloco "Lançar gasto" nas configurações rápidas -->
+        <service
+            android:name=".AtalhoLancamentoTile"
+            android:exported="true"
+            android:icon="@drawable/ic_widget_add"
+            android:label="@string/tile_lancar"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Botão "Já paguei" do aviso de contas a vencer -->
+        <receiver
+            android:name=".AcaoContaReceiver"
+            android:exported="false" />
         <receiver
             android:name=".FluxAiWidgetReceiver"
             android:exported="true">

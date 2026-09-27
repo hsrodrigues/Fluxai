@@ -119,6 +119,7 @@ fun DashboardScreen(
     // Estado da barra de pesquisa
     var textoPesquisa by remember { mutableStateOf("") }
 
+    var criarRendaDoMes by remember { mutableStateOf(false) }
     var adiantamentoString by remember { mutableStateOf("") }
     var pagamentoString by remember { mutableStateOf("") }
     var extraString by remember { mutableStateOf("") }
@@ -144,6 +145,15 @@ fun DashboardScreen(
     var categoriesCustomList by remember { mutableStateOf<List<String>>(emptyList()) }
     var categoriasCustomList by remember { mutableStateOf<List<String>>(emptyList()) }
     var cartoesVisuais by remember { mutableStateOf<Map<String, Pair<String, String>>>(emptyMap()) } // id -> (nome, bandeira)
+    var contasBancarias by remember { mutableStateOf<List<ContaBancaria>>(emptyList()) }
+    var comprasDetectadas by remember { mutableStateOf<List<CompraPendente>>(emptyList()) }
+    var limitesCategoria by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
+    var caixinhasMetas by remember { mutableStateOf<List<Caixinha>>(emptyList()) }
+    var rendaPadrao by remember { mutableStateOf<Pair<Double, Double>?>(null) } // (adiantamento, salário)
+    var mostrarCompras by remember { mutableStateOf(false) }
+    var despesaParaComprovante by remember { mutableStateOf<Despesa?>(null) }
+    var despesaVerComprovante by remember { mutableStateOf<Despesa?>(null) }
+    var fotoComprovante by remember { mutableStateOf<android.net.Uri?>(null) }
 
     DisposableEffect(workspaceUid) {
         val ouvintes = mutableListOf<ListenerRegistration>()
@@ -163,6 +173,31 @@ fun DashboardScreen(
                     if (snap != null) {
                         cartoesVisuais = snap.documents.associate { d -> d.id to ((d.getString("nome") ?: "") to (d.getString("bandeira") ?: "")) }
                     }
+                }
+            ouvintes += banco.collection("usuarios").document(workspaceUid).collection("contas")
+                .addSnapshotListener { snap, _ ->
+                    if (snap != null) contasBancarias = snap.documents.map { d -> ContaBancaria(d.id, d.getString("nome") ?: "", d.getString("tipo") ?: "", d.getDouble("saldo") ?: 0.0) }
+                }
+            // Compras lidas das notificações do banco, esperando confirmação
+            ouvintes += banco.collection("usuarios").document(workspaceUid).collection("compras_detectadas")
+                .addSnapshotListener { snap, _ ->
+                    if (snap != null) comprasDetectadas = snap.documents.map { lerCompraPendente(it) }.sortedByDescending { it.detectadaEm }
+                }
+            // Limites por categoria (definidos na Análise BI)
+            ouvintes += banco.collection("usuarios").document(workspaceUid).collection("configuracoes").document("limites")
+                .addSnapshotListener { snap, _ ->
+                    limitesCategoria = (snap?.data ?: emptyMap()).mapValues { (it.value as? Number)?.toDouble() ?: 0.0 }
+                }
+            ouvintes += banco.collection("usuarios").document(workspaceUid).collection("caixinhas")
+                .addSnapshotListener { snap, _ ->
+                    if (snap != null) caixinhasMetas = snap.documents.map { d ->
+                        Caixinha(d.id, d.getString("nome") ?: "", d.getDouble("meta") ?: 0.0, d.getDouble("saldo") ?: 0.0, d.getString("icone") ?: "", d.getString("prazo") ?: "")
+                    }
+                }
+            ouvintes += banco.collection("usuarios").document(workspaceUid)
+                .addSnapshotListener { doc, _ ->
+                    val r = doc?.get("rendaPadrao") as? Map<*, *>
+                    rendaPadrao = r?.let { ((it["adiantamento"] as? Number)?.toDouble() ?: 0.0) to ((it["pagamento"] as? Number)?.toDouble() ?: 0.0) }
                 }
         }
         // Desliga os ouvintes ao sair da tela ou trocar a chave (ex.: mês), senão eles se acumulam
@@ -211,32 +246,31 @@ fun DashboardScreen(
                 extraString = "0,00"
                 editandoSaldo = true
             }
+            criarRendaDoMes = doc != null && !doc.exists() && !doc.metadata.isFromCache
         }
 
         ouvintes += banco.collection("usuarios").document(workspaceUid).collection("despesas").whereEqualTo("mesAno", mesAnoSelecionado).addSnapshotListener { snap, _ ->
             if (snap != null) {
                 despesasRaw = snap.documents.sortedBy { it.getLong("ordem") ?: 9999L }.mapNotNull { d ->
-                    try {
-                        Despesa(
-                            id = d.id,
-                            descricao = d.getString("descricao") ?: "",
-                            valor = d.getDouble("valor") ?: 0.0,
-                            tipo = d.getString("tipo") ?: "Variável",
-                            categoria = d.getString("categoria") ?: "Outros",
-                            status = d.getString("status") ?: "A pagar",
-                            observacao = d.getString("observacao") ?: "",
-                            diaVencimento = d.getLong("diaVencimento")?.toInt() ?: 0,
-                            frequencia = d.getString("frequencia") ?: "Mensal",
-                            mesAno = d.getString("mesAno") ?: "",
-                            cartaoId = d.getString("cartaoId"),
-                            projetoId = d.getString("projetoId")
-                        )
-                    } catch (e: Exception) { null }
+                    try { lerDespesa(d) } catch (e: Exception) { null }
                 }
             }
         }
         // Desliga os ouvintes ao sair da tela ou trocar a chave (ex.: mês), senão eles se acumulam
         onDispose { ouvintes.forEach { it.remove() } }
+    }
+
+    // Mês sem renda cadastrada: usa a renda padrão (definida na apresentação ou ao salvar o mês atual).
+    // Só do mês corrente em diante, para não inventar renda em meses que já passaram.
+    LaunchedEffect(criarRendaDoMes, rendaPadrao, mesAnoSelecionado) {
+        val padrao = rendaPadrao ?: return@LaunchedEffect
+        if (!criarRendaDoMes) return@LaunchedEffect
+        val (m, a) = mesAnoSelecionado.split("/").map { it.toInt() }
+        val hoje = Calendar.getInstance()
+        if (a * 12 + m < hoje.get(Calendar.YEAR) * 12 + hoje.get(Calendar.MONTH) + 1) return@LaunchedEffect
+        criarRendaDoMes = false
+        banco.collection("usuarios").document(workspaceUid).collection("saldos").document(mesAnoSelecionado.replace("/", "-"))
+            .set(mapOf("adiantamento" to padrao.first, "pagamento" to padrao.second, "extra" to 0.0, "valor" to padrao.first + padrao.second), com.google.firebase.firestore.SetOptions.merge())
     }
 
     // Variáveis restauradas corretamente
@@ -299,9 +333,12 @@ fun DashboardScreen(
 
     // A projeção só faz sentido no mês corrente
     val mostrarPrevisao = mesAnoSelecionado == mesAtualStr
-    val previsao = remember(despesasRaw, sobraFinal, totalRenda, mostrarPrevisao) {
-        if (mostrarPrevisao) calcularPrevisao(despesasRaw, sobraFinal, totalRenda) else null
+    // Metas com prazo: o aporte do mês que ainda falta sai da sobra disponível
+    val reservaMetas = remember(caixinhasMetas, despesasRaw, mesAnoSelecionado) { reservaPendenteMetas(caixinhasMetas, despesasRaw, mesAnoSelecionado) }
+    val previsao = remember(despesasRaw, sobraFinal, totalRenda, mostrarPrevisao, reservaMetas) {
+        if (mostrarPrevisao) calcularPrevisao(despesasRaw, sobraFinal, totalRenda, reservaMetas = reservaMetas) else null
     }
+    val alertasCategoria = remember(despesasRaw, limitesCategoria) { alertasOrcamento(despesasRaw, limitesCategoria) }
 
     // Widget: atualiza só com o mês corrente aberto (navegar por meses antigos não deve sobrescrever)
     LaunchedEffect(previsao, totalPago, totalDespesasGeral) {
@@ -352,16 +389,17 @@ fun DashboardScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, null, tint = colorTextPrimary)
+                            Icon(Icons.Default.Menu, "Abrir menu", tint = colorTextPrimary)
                         }
                     },
                     actions = {
                         IconButton(onClick = { exportarDespesasParaCSV(context, despesasRaw, mesAnoSelecionado) }) {
-                            Icon(Icons.Default.FileDownload, "Backup", tint = colorAccent)
+                            Icon(Icons.Default.FileDownload, "Exportar o mês em CSV", tint = colorAccent)
                         }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = colorBg)
                 )
+                AvisoConexao()
             },
             containerColor = colorBg
         ) { padding ->
@@ -389,6 +427,11 @@ fun DashboardScreen(
                                             val ex = extraString.paraValor() ?: 0.0
                                             banco.collection("usuarios").document(workspaceUid).collection("saldos").document(mesAnoSelecionado.replace("/", "-"))
                                                 .set(mapOf("adiantamento" to ad, "pagamento" to pg, "extra" to ex, "valor" to (ad + pg + ex))).addOnSuccessListener { editandoSaldo = false }
+                                            // A renda fixa do mês corrente vira o padrão dos próximos meses (a renda extra não)
+                                            if (mesAnoSelecionado == mesAtualStr && ad + pg > 0) {
+                                                banco.collection("usuarios").document(workspaceUid)
+                                                    .set(mapOf("rendaPadrao" to mapOf("adiantamento" to ad, "pagamento" to pg)), com.google.firebase.firestore.SetOptions.merge())
+                                            }
                                         } else { editandoSaldo = true }
                                     },
                                     colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = colorAccent.copy(alpha = 0.12f), contentColor = colorAccent)
@@ -443,8 +486,18 @@ fun DashboardScreen(
                     }
                 }
 
+                if (comprasDetectadas.isNotEmpty()) {
+                    item {
+                        AvisoComprasDetectadas(comprasDetectadas, colorAccent, colorSurface, colorTextPrimary, colorTextSecondary) { mostrarCompras = true }
+                    }
+                }
+
                 if (previsao != null) {
                     item { CardAnalisePreditiva(previsao, isDark) }
+                }
+
+                if (alertasCategoria.isNotEmpty()) {
+                    item { CardAlertasOrcamento(alertasCategoria, colorSurface, colorDivider, colorTextPrimary, colorTextSecondary, onAbrir = onAbrirAnalytics) }
                 }
 
                 if (candidatasRecorrentes.isNotEmpty() && !recorrenciaDispensada) {
@@ -748,11 +801,13 @@ fun DashboardScreen(
                                 despesa = despesa,
                                 isDark = isDark,
                                 colorAccent = colorAccent,
-                                onStatusChange = { n -> banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesa.id).update("status", n) },
+                                onStatusChange = { n -> mudarStatusDespesa(workspaceUid, despesa, n) { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } },
                                 onPagamentoCartao = { despesaParaPagarCartao = despesa },
                                 onEditClick = { despesaParaEditar = despesa },
                                 onDeleteClick = { despesaParaExcluir = despesa },
-                                cartao = despesa.cartaoId?.let { cartoesVisuais[it] }
+                                cartao = despesa.cartaoId?.let { cartoesVisuais[it] },
+                                onComprovante = { if (despesa.comprovante.isNullOrBlank()) despesaParaComprovante = despesa else despesaVerComprovante = despesa },
+                                pagoPorOutro = despesa.status == "Pago" && despesa.pagoPor != null && despesa.pagoPor != user.uid
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                         }
@@ -850,6 +905,13 @@ fun DashboardScreen(
                             val v = eVal.paraValor() ?: 0.0
                             val original = despesaParaEditar!!
                             ajustarFatura(original, v - original.valor)
+                            // Saldo da conta bancária acompanha mudanças de valor ou de status
+                            banco.batch().also { ajustarSaldoContas(it, workspaceUid, original, original.copy(valor = v, status = eStatus)) }.commit()
+                            val quemPagou: Map<String, Any?> = when {
+                                eStatus == original.status -> emptyMap()
+                                eStatus == "Pago" -> mapOf("pagoPor" to user.uid, "pagoPorNome" to (user.displayName?.split(" ")?.firstOrNull() ?: user.email))
+                                else -> mapOf("pagoPor" to null, "pagoPorNome" to null)
+                            }
                             val isParcelaOriginal = original.descricao.matches(Regex(".*\\(\\d+/\\d+\\)$"))
 
                             if (isParcelaOriginal) {
@@ -865,7 +927,7 @@ fun DashboardScreen(
                                         if (descBanco.startsWith("$baseDescOriginal (") && descBanco.matches(Regex(".*\\(\\d+/\\d+\\)$"))) {
                                             val ref = banco.collection("usuarios").document(workspaceUid).collection("despesas").document(doc.id)
                                             if (doc.id == original.id) {
-                                                batch.update(ref, mapOf("descricao" to eDesc, "valor" to v, "diaVencimento" to (eDia.toIntOrNull() ?: 1), "mesAno" to eMesAno, "categoria" to eCat, "tipo" to eTipo, "frequencia" to eFreq, "status" to eStatus))
+                                                batch.update(ref, mapOf("descricao" to eDesc, "valor" to v, "diaVencimento" to (eDia.toIntOrNull() ?: 1), "mesAno" to eMesAno, "categoria" to eCat, "tipo" to eTipo, "frequencia" to eFreq, "status" to eStatus) + quemPagou)
                                             } else {
                                                 batch.update(ref, mapOf("categoria" to eCat))
                                             }
@@ -874,7 +936,7 @@ fun DashboardScreen(
                                     batch.commit().addOnSuccessListener { despesaParaEditar = null }
                                 }
                             } else {
-                                banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesaParaEditar!!.id).update(mapOf("descricao" to eDesc, "valor" to v, "diaVencimento" to (eDia.toIntOrNull() ?: 1), "mesAno" to eMesAno, "categoria" to eCat, "tipo" to eTipo, "frequencia" to eFreq, "status" to eStatus)).addOnSuccessListener { despesaParaEditar = null }
+                                banco.collection("usuarios").document(workspaceUid).collection("despesas").document(despesaParaEditar!!.id).update(mapOf("descricao" to eDesc, "valor" to v, "diaVencimento" to (eDia.toIntOrNull() ?: 1), "mesAno" to eMesAno, "categoria" to eCat, "tipo" to eTipo, "frequencia" to eFreq, "status" to eStatus) + quemPagou).addOnSuccessListener { despesaParaEditar = null }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = colorAccent)
@@ -897,9 +959,9 @@ fun DashboardScreen(
                 text = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { anoTemp-- }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = colorTextPrimary) }
+                            IconButton(onClick = { anoTemp-- }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Ano anterior", tint = colorTextPrimary) }
                             Text(anoTemp.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = colorAccent)
-                            IconButton(onClick = { anoTemp++ }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = colorTextPrimary) }
+                            IconButton(onClick = { anoTemp++ }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Próximo ano", tint = colorTextPrimary) }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         val rows = mesesAbrev.chunked(4)
@@ -1065,6 +1127,9 @@ fun DashboardScreen(
                         onClick = {
                             val despesa = despesaParaExcluir!!
                             ajustarFatura(despesa, -despesa.valor)
+                            // Se estava paga por uma conta, o valor volta para ela; a foto do comprovante vai junto
+                            banco.batch().also { ajustarSaldoContas(it, workspaceUid, despesa, null) }.commit()
+                            apagarArquivoComprovante(despesa)
                             if (despesa.descricao.startsWith("Apontamento:", ignoreCase = true)) {
                                 val nomeCaixinha = despesa.descricao.substringAfter("Apontamento:").trim()
                                 val valorEstorno = despesa.valor
@@ -1146,10 +1211,11 @@ fun DashboardScreen(
                                                 transaction.update(cartaoRef, "faturaAtual", novaFatura)
                                             }
 
+                                            val pagador = user.displayName?.split(" ")?.firstOrNull() ?: user.email
                                             if (valorPago >= despesaParaPagarCartao!!.valor) {
-                                                transaction.update(despesaRef, "status", "Pago")
+                                                transaction.update(despesaRef, "status", "Pago", "pagoPor", user.uid, "pagoPorNome", pagador)
                                             } else {
-                                                transaction.update(despesaRef, "status", "Pago", "valor", valorPago, "observacao", "Pagamento parcial")
+                                                transaction.update(despesaRef, "status", "Pago", "valor", valorPago, "observacao", "Pagamento parcial", "pagoPor", user.uid, "pagoPorNome", pagador)
 
                                                 val restante = despesaParaPagarCartao!!.valor - valorPago
 
@@ -1200,6 +1266,57 @@ fun DashboardScreen(
                     TextButton(onClick = { despesaParaPagarCartao = null }) { Text("Cancelar", color = colorTextSecondary) }
                 }
             )
+        }
+
+        if (mostrarCompras) {
+            DialogoComprasDetectadas(
+                compras = comprasDetectadas, workspaceUid = workspaceUid,
+                cartoes = cartoesVisuais, contas = contasBancarias,
+                cor = colorAccent, corSuperficie = colorSurface, corTexto = colorTextPrimary, corTextoFraco = colorTextSecondary,
+                onFechar = { mostrarCompras = false }
+            )
+        }
+
+        // Anexar comprovante a um lançamento já existente: foto ou galeria
+        val cameraComprovante = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok ->
+            val d = despesaParaComprovante; val uri = fotoComprovante
+            if (ok && d != null && uri != null) enviarComprovanteComAviso(context, workspaceUid, d, uri, coroutineScope)
+            despesaParaComprovante = null
+        }
+        val galeriaComprovante = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
+            val d = despesaParaComprovante
+            if (d != null && uri != null) enviarComprovanteComAviso(context, workspaceUid, d, uri, coroutineScope)
+            despesaParaComprovante = null
+        }
+        val permissaoCamera = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+            if (ok) {
+                val arquivo = java.io.File.createTempFile("comprovante_", ".jpg", context.cacheDir)
+                fotoComprovante = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", arquivo)
+                cameraComprovante.launch(fotoComprovante!!)
+            } else despesaParaComprovante = null
+        }
+        despesaParaComprovante?.let { d ->
+            AlertDialog(
+                onDismissRequest = { despesaParaComprovante = null },
+                containerColor = colorSurface,
+                shape = RoundedCornerShape(28.dp),
+                icon = { Icon(Icons.Default.Receipt, null, tint = colorAccent) },
+                title = { Text("Anexar comprovante", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
+                text = { Text("Foto do recibo ou nota de \"${d.descricao}\". Ela fica guardada com o lançamento e ajuda na declaração do IR.", color = colorTextSecondary) },
+                confirmButton = {
+                    Button(onClick = { permissaoCamera.launch(android.Manifest.permission.CAMERA) }, colors = ButtonDefaults.buttonColors(containerColor = colorAccent)) {
+                        Icon(Icons.Default.PhotoCamera, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Câmera")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { galeriaComprovante.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                        Icon(Icons.Default.PhotoLibrary, null, Modifier.size(18.dp), tint = colorAccent); Spacer(Modifier.width(6.dp)); Text("Galeria", color = colorAccent)
+                    }
+                }
+            )
+        }
+        despesaVerComprovante?.let { d ->
+            DialogoComprovante(d, workspaceUid, coresTela(), onFechar = { despesaVerComprovante = null })
         }
 
         if (mostrarUpdateDialog) {
@@ -1321,7 +1438,9 @@ fun DashDespesaCard(
     onPagamentoCartao: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    cartao: Pair<String, String>? = null // (nome, bandeira) do cartão usado, se houver
+    cartao: Pair<String, String>? = null, // (nome, bandeira) do cartão usado, se houver
+    onComprovante: (() -> Unit)? = null,
+    pagoPorOutro: Boolean = false         // conta conjunta: mostra quem pagou quando não foi o usuário atual
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val moeda = remember { java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
@@ -1344,6 +1463,7 @@ fun DashDespesaCard(
     val detalhes = listOfNotNull(
         if (ehProjeto) "Projeto" else despesa.diaVencimento.takeIf { it > 0 }?.let { "Dia $it" },
         cartao?.first?.takeIf { it.isNotBlank() },
+        if (pagoPorOutro) despesa.pagoPorNome?.let { "pago por $it" } else null,
         despesa.tipo,
         despesa.frequencia
     ).joinToString(" · ")
@@ -1404,7 +1524,13 @@ fun DashDespesaCard(
                     despesa.descricao, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 19.sp,
                     color = if (pago) corTexto.copy(alpha = 0.6f) else corTexto
                 )
-                Text(detalhes, fontSize = 12.sp, color = corFraca, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!despesa.comprovante.isNullOrBlank()) {
+                        Icon(Icons.Default.AttachFile, "Tem comprovante", tint = corFraca, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(2.dp))
+                    }
+                    Text(detalhes, fontSize = 12.sp, color = corFraca, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
             }
 
             Spacer(Modifier.width(8.dp))
@@ -1438,6 +1564,11 @@ fun DashDespesaCard(
                     }
                     HorizontalDivider(color = if (isDark) Color(0xFF2C2C2C) else Color(0xFFE5E7EB))
                     DropdownMenuItem(text = { Text("Editar", color = corTexto) }, leadingIcon = { Icon(Icons.Default.Edit, null, tint = colorAccent) }, onClick = { onEditClick(); menuOpen = false })
+                    if (onComprovante != null) DropdownMenuItem(
+                        text = { Text(if (despesa.comprovante.isNullOrBlank()) "Anexar comprovante" else "Ver comprovante", color = corTexto) },
+                        leadingIcon = { Icon(Icons.Default.Receipt, null, tint = colorAccent) },
+                        onClick = { onComprovante(); menuOpen = false }
+                    )
                     DropdownMenuItem(text = { Text("Excluir", color = Color(0xFFE53935)) }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color(0xFFE53935)) }, onClick = { onDeleteClick(); menuOpen = false })
                 }
             }
@@ -1654,12 +1785,15 @@ data class PrevisaoFinanceira(
     val diaZera: Int?,              // dia em que a sobra zera no ritmo atual (null = não zera)
     val contasVencidas: List<Despesa>,
     val contasProximas: List<Despesa>, // vencem nos próximos 3 dias
-    val projecaoConfiavel: Boolean  // no começo do mês a média ainda oscila muito
+    val projecaoConfiavel: Boolean, // no começo do mês a média ainda oscila muito
+    val reservaMetas: Double = 0.0  // já descontado da sobra e do limite diário
 )
 
 private fun brl(v: Double) = "R$ %,.2f".format(Locale("pt", "BR"), v)
 
-fun calcularPrevisao(despesas: List<Despesa>, sobraFinal: Double, totalRenda: Double, hoje: Calendar = Calendar.getInstance()): PrevisaoFinanceira {
+// reservaMetas: quanto ainda falta guardar neste mês para as metas com prazo; sai da sobra disponível
+fun calcularPrevisao(despesas: List<Despesa>, sobraTotal: Double, totalRenda: Double, hoje: Calendar = Calendar.getInstance(), reservaMetas: Double = 0.0): PrevisaoFinanceira {
+    val sobraFinal = sobraTotal - reservaMetas
     val diaHoje = hoje.get(Calendar.DAY_OF_MONTH)
     val diasNoMes = hoje.getActualMaximum(Calendar.DAY_OF_MONTH)
     val diasRestantes = diasNoMes - diaHoje
@@ -1694,7 +1828,7 @@ fun calcularPrevisao(despesas: List<Despesa>, sobraFinal: Double, totalRenda: Do
             "No ritmo atual de ${brl(ritmoDiario)}/dia, você fecha o mês com cerca de ${brl(sobraProjetada)} de sobra.")
     }
 
-    return PrevisaoFinanceira(nivel, titulo, mensagem, diaHoje, diasNoMes, ritmoDiario, sobraProjetada, limiteDiario, diaZera, vencidas, proximas, projecaoConfiavel = diaHoje >= 5)
+    return PrevisaoFinanceira(nivel, titulo, mensagem, diaHoje, diasNoMes, ritmoDiario, sobraProjetada, limiteDiario, diaZera, vencidas, proximas, projecaoConfiavel = diaHoje >= 5, reservaMetas = reservaMetas)
 }
 
 @Composable
@@ -1757,6 +1891,11 @@ fun CardAnalisePreditiva(previsao: PrevisaoFinanceira, isDark: Boolean) {
                 val nomes = previsao.contasProximas.take(3).joinToString(", ") { "${it.descricao} (dia ${it.diaVencimento})" }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("Vencem nos próximos 3 dias: $nomes", fontSize = 12.sp, color = corTexto.copy(alpha = 0.85f))
+            }
+
+            if (previsao.reservaMetas > 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Já considera ${brl(previsao.reservaMetas)} para guardar nas metas este mês.", fontSize = 12.sp, color = corTexto.copy(alpha = 0.85f))
             }
 
             if (!previsao.projecaoConfiavel && previsao.ritmoDiario > 0) {

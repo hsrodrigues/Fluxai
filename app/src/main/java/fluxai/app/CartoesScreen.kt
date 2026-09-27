@@ -120,7 +120,7 @@ fun CartoesScreen(
             topBar = {
                 CenterAlignedTopAppBar(
                     title = { Text("Cartões", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
-                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, null) } },
+                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, "Abrir menu") } },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = colorBg)
                 )
             },

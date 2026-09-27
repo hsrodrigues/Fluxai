@@ -43,6 +43,8 @@ class MainActivity : FragmentActivity() {
         // Pedido vindo do widget para abrir uma tela específica
         const val EXTRA_ABRIR = "abrir"
         const val ABRIR_LANCAMENTO = "lancamento"
+        const val ABRIR_LEITOR = "leitor"       // Novo Lançamento já com o leitor de código de barras/Pix
+        const val ABRIR_DASHBOARD = "dashboard" // ex.: aviso de compra detectada
     }
 
     private var destinoPendente by mutableStateOf<String?>(null)
@@ -55,6 +57,8 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         destinoPendente = intent?.getStringExtra(EXTRA_ABRIR)
+        // Relatório de falhas só nas versões publicadas (no desenvolvimento os erros aparecem no Logcat)
+        com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().isCrashlyticsCollectionEnabled = !BuildConfig.DEBUG
 
         // 1. PEDIR PERMISSÃO (Obrigatório para Android 13, 14 e 15)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -64,6 +68,15 @@ class MainActivity : FragmentActivity() {
         // 2. AGENDAMENTO NORMAL (A cada 24h)
         agendarAlertasVencimento()
         agendarRoboManutencao()
+        if (lembreteDiarioAtivo(this)) agendarLembreteDiario(this)
+
+        // Só no build de desenvolvimento: roda os avisos na hora para testar
+        // (adb shell am start -n fluxai.app/.MainActivity --ez testar_avisos true)
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra("testar_avisos", false) == true) {
+            val wm = androidx.work.WorkManager.getInstance(applicationContext)
+            wm.enqueue(androidx.work.OneTimeWorkRequestBuilder<AlertaVencimentoWorker>().build())
+            wm.enqueue(androidx.work.OneTimeWorkRequestBuilder<LembreteDiarioWorker>().build())
+        }
 
         setContent {
             val context = LocalContext.current
@@ -266,6 +279,12 @@ class MainActivity : FragmentActivity() {
             }
         }
 
+        // Depois do login: primeira vez nesta conta passa pela apresentação
+        val destinoAposLogin = {
+            val uid = Firebase.auth.currentUser?.uid
+            if (uid != null && !onboardingConcluido(this, uid)) "onboarding" else "dashboard"
+        }
+
         // Abre o Novo Lançamento quando o pedido vem do widget (só depois de sair do splash/login)
         val rotaAtual = navController.currentBackStackEntryAsState().value?.destination?.route
 
@@ -277,19 +296,25 @@ class MainActivity : FragmentActivity() {
         val rodapeEscuro = temaEscuro || rotaAtual == null || rotaAtual == "splash"
         SideEffect { ajustarIconesBarras(view, topoEscuro, rodapeEscuro) }
         LaunchedEffect(destinoPendente, rotaAtual) {
-            if (destinoPendente == ABRIR_LANCAMENTO && rotaAtual != null && rotaAtual !in setOf("splash", "login", "register")) {
+            val destino = destinoPendente
+            if (destino != null && rotaAtual != null && rotaAtual !in setOf("splash", "login", "register", "onboarding")) {
                 destinoPendente = null
-                navegarPara("home")
+                when (destino) {
+                    ABRIR_LANCAMENTO -> navegarPara("home")
+                    ABRIR_LEITOR -> { pedidoLeitorCodigo = true; navegarPara("home") }
+                    ABRIR_DASHBOARD -> navegarPara("dashboard")
+                }
             }
         }
 
+        CompositionLocalProvider(LocalNavegar provides navegarPara) {
         NavHost(navController = navController, startDestination = "splash") {
 
             composable("splash") {
                 SplashScreen(
                     onTimeout = {
                         val destino =
-                            if (Firebase.auth.currentUser == null) "login" else "dashboard"
+                            if (Firebase.auth.currentUser == null) "login" else destinoAposLogin()
                         navController.navigate(destino) { popUpTo("splash") { inclusive = true } }
                     }
                 )
@@ -298,7 +323,7 @@ class MainActivity : FragmentActivity() {
             composable("login") {
                 LoginScreen(
                     onLoginSuccess = {
-                        navController.navigate("dashboard") {
+                        navController.navigate(destinoAposLogin()) {
                             popUpTo("login") {
                                 inclusive = true
                             }
@@ -311,7 +336,7 @@ class MainActivity : FragmentActivity() {
             composable("register") {
                 RegisterScreen(
                     onRegisterSuccess = {
-                        navController.navigate("dashboard") {
+                        navController.navigate(destinoAposLogin()) {
                             popUpTo("login") { inclusive = true }
                         }
                     },
@@ -479,6 +504,16 @@ class MainActivity : FragmentActivity() {
                     onAbrirCelular = { navegarPara("celular") }
                 )
             }
+
+            composable("onboarding") {
+                OnboardingScreen(onConcluir = {
+                    navController.navigate("dashboard") { popUpTo("onboarding") { inclusive = true } }
+                })
+            }
+            composable("importar") { ImportarExtratoScreen(onLogout = sairDoApp) }
+            composable("relatorio") { RelatorioAnualScreen(onLogout = sairDoApp) }
+            composable("contas") { ContasBancariasScreen(onLogout = sairDoApp) }
+        }
         }
     }
 }

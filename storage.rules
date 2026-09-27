@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// Comprovantes: só o dono da conta e os membros da conta conjunta leem e gravam.
+// A lista de membros vem do Firestore (mesma regra do firestore.rules).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /usuarios/{userId}/comprovantes/{arquivo} {
+      function podeAcessar() {
+        return request.auth != null && (
+          request.auth.uid == userId ||
+          firestore.exists(/databases/(default)/documents/usuarios/$(userId)/membros/$(request.auth.uid))
+        );
+      }
+      allow read, delete: if podeAcessar();
+      // Só imagens de até 5 MB
+      allow write: if podeAcessar()
+        && (request.resource == null || (request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*')));
+    }
+  }
+}

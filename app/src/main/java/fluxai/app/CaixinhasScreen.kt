@@ -95,6 +95,9 @@ fun CaixinhasScreen(
     var cxNome by remember { mutableStateOf("") }
     var cxMeta by remember { mutableStateOf("") }
     var cxIcone by remember { mutableStateOf("savings") }
+    var cxPrazo by remember { mutableStateOf("") }
+    var caixinhaParaPrazo by remember { mutableStateOf<Caixinha?>(null) }
+    val mesAtual = remember { SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(Date()) }
 
     var salvandoCx by remember { mutableStateOf(false) }
 
@@ -118,7 +121,7 @@ fun CaixinhasScreen(
             topBar = {
                 CenterAlignedTopAppBar(
                     title = { Text("Cofre e metas", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorTextPrimary) },
-                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, null, tint = colorTextPrimary) } },
+                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, "Abrir menu", tint = colorTextPrimary) } },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = colorBg)
                 )
             },
@@ -171,7 +174,9 @@ fun CaixinhasScreen(
                             caixinha = cx, isDark = isDark, moeda = moeda,
                             onGuardar = { tipoAporte = "depositar"; caixinhaParaAporte = cx },
                             onResgatar = { tipoAporte = "resgatar"; caixinhaParaAporte = cx },
-                            onDelete = { caixinhaParaExcluir = cx }
+                            onDelete = { caixinhaParaExcluir = cx },
+                            aporteMensal = aporteDoMes(cx, mesAtual),
+                            onDefinirPrazo = { caixinhaParaPrazo = cx }
                         )
                     }
                 }
@@ -187,6 +192,9 @@ fun CaixinhasScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(value = cxNome, onValueChange = { cxNome = it }, label = { Text("Objetivo (ex.: viagem)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = FormatoCampo, colors = coresCampo)
                             OutlinedTextField(value = cxMeta, onValueChange = { cxMeta = it.replace('.', ',') }, label = { Text("Quanto quer juntar (R$)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = FormatoCampo, colors = coresCampo)
+                            CampoPrazo(cxPrazo, { cxPrazo = it }, coresCampo)
+                            val previa = cxMeta.paraValor()?.let { meta -> prazoValido(cxPrazo)?.let { p -> aporteDoMes(Caixinha(meta = meta, prazo = p), mesAtual) } }
+                            if (previa != null && previa > 0) Text("Guardando ${moeda.format(previa)} por mês você chega lá.", fontSize = 12.sp, color = verde)
                             Text("Ícone", fontSize = 12.sp, color = colorTextSecondary)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 mapaIconesCaixinha.keys.forEach { chave ->
@@ -204,9 +212,9 @@ fun CaixinhasScreen(
                                 val m = cxMeta.paraValor() ?: 0.0
                                 if (cxNome.isNotBlank()) {
                                     salvandoCx = true
-                                    vm.criar(cxNome, m, cxIcone) { ok ->
+                                    vm.criar(cxNome, m, cxIcone, prazoValido(cxPrazo) ?: "") { ok ->
                                         salvandoCx = false
-                                        if (ok) { mostrarModalNovaCaixinha = false; cxNome = ""; cxMeta = ""; cxIcone = "savings" }
+                                        if (ok) { mostrarModalNovaCaixinha = false; cxNome = ""; cxMeta = ""; cxIcone = "savings"; cxPrazo = "" }
                                         else Toast.makeText(context, "Não foi possível criar a meta.", Toast.LENGTH_SHORT).show()
                                     }
                                 } else Toast.makeText(context, "Dê um nome para a meta.", Toast.LENGTH_SHORT).show()
@@ -216,6 +224,33 @@ fun CaixinhasScreen(
                         ) { Text("Criar meta") }
                     },
                     dismissButton = { TextButton(onClick = { mostrarModalNovaCaixinha = false }) { Text("Cancelar", color = colorTextSecondary) } }
+                )
+            }
+
+            caixinhaParaPrazo?.let { cx ->
+                var prazo by remember(cx.id) { mutableStateOf(cx.prazo) }
+                AlertDialog(
+                    onDismissRequest = { caixinhaParaPrazo = null },
+                    containerColor = colorSurface,
+                    shape = RoundedCornerShape(28.dp),
+                    title = { Text("Prazo de \"${cx.nome}\"", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Com um prazo, o app mostra quanto guardar por mês e reserva esse valor na previsão do Dashboard.", fontSize = 13.sp, color = colorTextSecondary)
+                            CampoPrazo(prazo, { prazo = it }, coresCampo)
+                            prazoValido(prazo)?.let { p ->
+                                val v = aporteDoMes(cx.copy(prazo = p), mesAtual)
+                                if (v > 0) Text("${moeda.format(v)} por mês", fontWeight = FontWeight.Bold, color = verde)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            if (prazo.isBlank() || prazoValido(prazo) != null) { vm.definirPrazo(cx, prazoValido(prazo) ?: ""); caixinhaParaPrazo = null }
+                            else Toast.makeText(context, "Use o formato MM/AAAA, a partir deste mês.", Toast.LENGTH_SHORT).show()
+                        }, colors = ButtonDefaults.buttonColors(containerColor = verde)) { Text("Salvar") }
+                    },
+                    dismissButton = { TextButton(onClick = { caixinhaParaPrazo = null }) { Text("Cancelar", color = colorTextSecondary) } }
                 )
             }
 
@@ -258,9 +293,15 @@ fun CaixinhasScreen(
                             Text("Guardado: ${moeda.format(cx.saldo)}", fontSize = 12.sp, color = colorTextSecondary)
                             OutlinedTextField(value = valorAporte, onValueChange = { valorAporte = it.replace('.', ',') }, label = { Text("Valor (R$)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = FormatoCampo, colors = coresCampo)
                             // Valores rápidos
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Largura dividida por igual e sem quebra de linha ("R$ 500" não cabia no diálogo)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf(50, 100, 200, 500).forEach { rapido ->
-                                    AssistChip(onClick = { valorAporte = "$rapido" }, label = { Text("R$ $rapido") }, shape = RoundedCornerShape(50))
+                                    AssistChip(
+                                        onClick = { valorAporte = "$rapido" },
+                                        label = { Text("$rapido", maxLines = 1, softWrap = false, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier.weight(1f)
+                                    )
                                 }
                             }
                             Text(
@@ -300,7 +341,10 @@ fun CaixinhasScreen(
 }
 
 @Composable
-fun CardCaixinha(caixinha: Caixinha, isDark: Boolean, moeda: java.text.NumberFormat, onGuardar: () -> Unit, onResgatar: () -> Unit, onDelete: () -> Unit) {
+fun CardCaixinha(
+    caixinha: Caixinha, isDark: Boolean, moeda: java.text.NumberFormat, onGuardar: () -> Unit, onResgatar: () -> Unit, onDelete: () -> Unit,
+    aporteMensal: Double = 0.0, onDefinirPrazo: () -> Unit = {}
+) {
     val verde = Color(0xFF43A047)
     val corTexto = if (isDark) Color.White else Color(0xFF1A1A1A)
     val corFraca = Color(0xFF9CA3AF)
@@ -326,6 +370,7 @@ fun CardCaixinha(caixinha: Caixinha, isDark: Boolean, moeda: java.text.NumberFor
                         when {
                             caixinha.meta <= 0 -> "Sem valor de meta"
                             concluida -> "Meta alcançada! 🎉"
+                            aporteMensal > 0 -> "Guarde ${moeda.format(aporteMensal)}/mês até ${caixinha.prazo}"
                             else -> "Faltam ${moeda.format(caixinha.meta - caixinha.saldo)}"
                         },
                         fontSize = 12.sp, color = if (concluida) verde else corFraca
@@ -334,6 +379,11 @@ fun CardCaixinha(caixinha: Caixinha, isDark: Boolean, moeda: java.text.NumberFor
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Mais opções", tint = corFraca) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (caixinha.prazo.isBlank()) "Definir prazo" else "Mudar prazo") },
+                            leadingIcon = { Icon(Icons.Default.Event, null, tint = verde) },
+                            onClick = { menu = false; onDefinirPrazo() }
+                        )
                         DropdownMenuItem(text = { Text("Excluir meta", color = Color(0xFFE53935)) }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color(0xFFE53935)) }, onClick = { menu = false; onDelete() })
                     }
                 }
@@ -356,4 +406,30 @@ fun CardCaixinha(caixinha: Caixinha, isDark: Boolean, moeda: java.text.NumberFor
             }
         }
     }
+}
+
+// "122026" -> "12/2026" enquanto digita; aceita só números
+@Composable
+private fun CampoPrazo(valor: String, onMudar: (String) -> Unit, cores: TextFieldColors) {
+    // TextFieldValue para manter o cursor no fim depois de inserir a barra (senão os dígitos saem fora de ordem)
+    OutlinedTextField(
+        value = androidx.compose.ui.text.input.TextFieldValue(valor, androidx.compose.ui.text.TextRange(valor.length)),
+        onValueChange = { novo ->
+            val d = novo.text.filter { it.isDigit() }.take(6)
+            onMudar(if (d.length > 2) d.substring(0, 2) + "/" + d.substring(2) else d)
+        },
+        label = { Text("Até quando? (MM/AAAA, opcional)") },
+        leadingIcon = { Icon(Icons.Default.Event, null) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
+        modifier = Modifier.fillMaxWidth(), shape = FormatoCampo, colors = cores
+    )
+}
+
+// Prazo no formato MM/AAAA, do mês atual em diante; null se inválido ou vazio
+fun prazoValido(texto: String): String? {
+    val m = Regex("""^(\d{2})/(\d{4})$""").find(texto.trim()) ?: return null
+    val mes = m.groupValues[1].toInt()
+    if (mes !in 1..12) return null
+    val atual = SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(Date())
+    return texto.trim().takeIf { mesesAtePrazo(it, atual) >= 1 }
 }

@@ -86,6 +86,7 @@ exports.groqChat = onCall(
 // Exclusão de conta (LGPD): apaga TODOS os dados do usuário, inclusive subcoleções, e depois o login.
 // Feito no servidor porque o Firestore não apaga subcoleções ao excluir um documento pelo app.
 const { getAuth } = require("firebase-admin/auth");
+const { getStorage } = require("firebase-admin/storage");
 
 exports.excluirConta = onCall(
   { region: "southamerica-east1", timeoutSeconds: 300, memory: "256MiB" },
@@ -101,6 +102,9 @@ exports.excluirConta = onCall(
     }
 
     await db.recursiveDelete(db.collection("usuarios").doc(uid));
+
+    // Fotos de comprovantes guardadas no Storage
+    await getStorage().bucket().deleteFiles({ prefix: `usuarios/${uid}/` }).catch((e) => console.error("Falha ao apagar comprovantes", e));
 
     const lotes = [
       await db.collection("convites").where("dono", "==", uid).get(),

@@ -37,18 +37,24 @@ fun MenuLateral(
     drawerState: DrawerState,
     coroutineScope: CoroutineScope,
     rotaAtual: String,
-    onAbrirDashboard: () -> Unit = {},
-    onAbrirLancamento: () -> Unit = {},
-    onAbrirAnalytics: () -> Unit = {},
-    onAbrirSettings: () -> Unit = {},
-    onAbrirSobre: () -> Unit = {},
-    onAbrirManutencao: () -> Unit = {},
+    onAbrirDashboard: (() -> Unit)? = null,
+    onAbrirLancamento: (() -> Unit)? = null,
+    onAbrirAnalytics: (() -> Unit)? = null,
+    onAbrirSettings: (() -> Unit)? = null,
+    onAbrirSobre: (() -> Unit)? = null,
+    onAbrirManutencao: (() -> Unit)? = null,
     onLogout: () -> Unit = {},
-    onAbrirCartoes: () -> Unit = {},
-    onAbrirCaixinhas: () -> Unit = {},
-    onAbrirAssinaturas: () -> Unit = {},
-    onAbrirCelular: () -> Unit = {}
+    onAbrirCartoes: (() -> Unit)? = null,
+    onAbrirCaixinhas: (() -> Unit)? = null,
+    onAbrirAssinaturas: (() -> Unit)? = null,
+    onAbrirCelular: (() -> Unit)? = null
 ) {
+    // Sem callback próprio, o item navega pela rota (telas novas usam só a rota)
+    val navegar = LocalNavegar.current
+    fun abrir(callback: (() -> Unit)?, rota: String) {
+        coroutineScope.launch { drawerState.close() }
+        (callback ?: { navegar(rota) })()
+    }
     val usuario = Firebase.auth.currentUser
     val isDark = LocalDarkTheme.current
     val toggleTheme = LocalThemeToggle.current
@@ -123,7 +129,7 @@ fun MenuLateral(
                 // Resumo minimalista: uma linha com a sobra e uma linha de apoio
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .clickable { coroutineScope.launch { drawerState.close() }; onAbrirDashboard() }
+                        .clickable { abrir(onAbrirDashboard, "dashboard") }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -149,25 +155,28 @@ fun MenuLateral(
 
         Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(vertical = 12.dp)) {
             MenuSectionTitle("Operações")
-            MenuItem("Dashboard", Icons.Default.Dashboard, rotaAtual == "dashboard", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirDashboard() }
-            MenuItem("Novo Lançamento", Icons.Default.AddCircle, rotaAtual == "home", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirLancamento() }
-            MenuItem("Análise BI", Icons.Default.PieChart, rotaAtual == "analytics", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirAnalytics() }
+            MenuItem("Dashboard", Icons.Default.Dashboard, rotaAtual == "dashboard", colorAccent, colorTextSecondary) { abrir(onAbrirDashboard, "dashboard") }
+            MenuItem("Novo Lançamento", Icons.Default.AddCircle, rotaAtual == "home", colorAccent, colorTextSecondary) { abrir(onAbrirLancamento, "home") }
+            MenuItem("Importar extrato", Icons.Default.UploadFile, rotaAtual == "importar", colorAccent, colorTextSecondary) { abrir(null, "importar") }
+            MenuItem("Análise BI", Icons.Default.PieChart, rotaAtual == "analytics", colorAccent, colorTextSecondary) { abrir(onAbrirAnalytics, "analytics") }
+            MenuItem("Relatório anual", Icons.Default.Assessment, rotaAtual == "relatorio", colorAccent, colorTextSecondary) { abrir(null, "relatorio") }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             MenuSectionTitle("Gestão")
-            MenuItem("Cartões", Icons.Default.CreditCard, rotaAtual == "cartoes", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirCartoes() }
-            MenuItem("Cofre / Metas", Icons.Default.Savings, rotaAtual == "caixinhas", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirCaixinhas() }
-            MenuItem("Hub de Assinaturas", Icons.Default.Autorenew, rotaAtual == "assinaturas", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirAssinaturas() }
-            MenuItem("Planos e Celular", Icons.Default.SettingsCell, rotaAtual == "celular", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirCelular() }
-            MenuItem("Ativos & TCO", Icons.Default.Build, rotaAtual == "manutencao", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirManutencao() }
+            MenuItem("Contas bancárias", Icons.Default.AccountBalance, rotaAtual == "contas", colorAccent, colorTextSecondary) { abrir(null, "contas") }
+            MenuItem("Cartões", Icons.Default.CreditCard, rotaAtual == "cartoes", colorAccent, colorTextSecondary) { abrir(onAbrirCartoes, "cartoes") }
+            MenuItem("Cofre / Metas", Icons.Default.Savings, rotaAtual == "caixinhas", colorAccent, colorTextSecondary) { abrir(onAbrirCaixinhas, "caixinhas") }
+            MenuItem("Hub de Assinaturas", Icons.Default.Autorenew, rotaAtual == "assinaturas", colorAccent, colorTextSecondary) { abrir(onAbrirAssinaturas, "assinaturas") }
+            MenuItem("Planos e Celular", Icons.Default.SettingsCell, rotaAtual == "celular", colorAccent, colorTextSecondary) { abrir(onAbrirCelular, "celular") }
+            MenuItem("Ativos & TCO", Icons.Default.Build, rotaAtual == "manutencao", colorAccent, colorTextSecondary) { abrir(onAbrirManutencao, "manutencao") }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             MenuSectionTitle("Preferências")
-            MenuItem("Configurações", Icons.Default.AccountCircle, rotaAtual == "settings", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirSettings() }
+            MenuItem("Configurações", Icons.Default.AccountCircle, rotaAtual == "settings", colorAccent, colorTextSecondary) { abrir(onAbrirSettings, "settings") }
             MenuItem(if (isDark) "Modo Claro" else "Modo Escuro", if (isDark) Icons.Default.WbSunny else Icons.Default.DarkMode, false, colorAccent, colorTextSecondary) { toggleTheme() }
-            MenuItem("Sobre o App", Icons.Default.Info, rotaAtual == "sobre", colorAccent, colorTextSecondary) { coroutineScope.launch { drawerState.close() }; onAbrirSobre() }
+            MenuItem("Sobre o App", Icons.Default.Info, rotaAtual == "sobre", colorAccent, colorTextSecondary) { abrir(onAbrirSobre, "sobre") }
 
             Spacer(modifier = Modifier.height(32.dp))
 

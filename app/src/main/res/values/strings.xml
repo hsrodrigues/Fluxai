@@ -1,4 +1,10 @@
 <resources>
     <string name="app_name">Fluxai</string>
     <string name="widget_descricao">Sobra do mês, quanto pode gastar por dia e próximas contas</string>
+    <string name="atalho_lancar_curto">Lançar gasto</string>
+    <string name="atalho_lancar_longo">Novo lançamento</string>
+    <string name="atalho_codigo_curto">Ler boleto/Pix</string>
+    <string name="atalho_codigo_longo">Ler código de barras ou Pix</string>
+    <string name="tile_lancar">Lançar gasto</string>
+    <string name="leitor_notificacoes">FluxAí: compras pelas notificações do banco</string>
 </resources>

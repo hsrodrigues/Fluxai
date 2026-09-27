@@ -63,7 +63,11 @@ fun lerDespesa(d: com.google.firebase.firestore.DocumentSnapshot) = Despesa(
     frequencia = d.getString("frequencia") ?: "Mensal",
     mesAno = d.getString("mesAno") ?: "",
     cartaoId = d.getString("cartaoId"),
-    projetoId = d.getString("projetoId")
+    projetoId = d.getString("projetoId"),
+    contaId = d.getString("contaId"),
+    pagoPor = d.getString("pagoPor"),
+    pagoPorNome = d.getString("pagoPorNome"),
+    comprovante = d.getString("comprovante")
 )
 
 // Grava as escolhidas no mês atual como "A pagar", num lote só
@@ -83,7 +87,8 @@ fun trazerRecorrentes(workspaceUid: String, mesAno: String, escolhidas: List<Des
             "observacao" to d.observacao,
             "frequencia" to d.frequencia,
             "cartaoId" to d.cartaoId,
-            "projetoId" to d.projetoId
+            "projetoId" to d.projetoId,
+            "contaId" to d.contaId
         ))
         val cartao = d.cartaoId
         if (!cartao.isNullOrBlank() && cartao != "Saldo Conta") {

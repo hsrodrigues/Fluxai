@@ -58,9 +58,13 @@ data class Despesa(
     val observacao: String = "",
     val diaVencimento: Int = 0,
     val frequencia: String = "Mensal",
-    val mesAno: String = "",         // <-- FALTAVA ISSO
+    val mesAno: String = "",
     val cartaoId: String? = null,
-    val projetoId: String? = null// <-- E ISSO (Se não tinha colocado ainda)
+    val projetoId: String? = null,
+    val contaId: String? = null,       // conta bancária que paga (ou pagou) o lançamento
+    val pagoPor: String? = null,       // uid de quem marcou como pago (conta conjunta)
+    val pagoPorNome: String? = null,
+    val comprovante: String? = null    // caminho da foto do comprovante no Firebase Storage
 )
 
 data class Cartao(
@@ -78,7 +82,8 @@ data class Caixinha(
     val nome: String = "",
     val meta: Double = 0.0,
     val saldo: Double = 0.0,
-    val icone: String = "fa-shield-halved"
+    val icone: String = "fa-shield-halved",
+    val prazo: String = ""  // "MM/yyyy"; vazio = meta sem data
 )
 
 data class CategoriaCustom(

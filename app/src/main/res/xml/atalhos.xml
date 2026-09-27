@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Atalhos ao segurar o ícone do app na tela inicial -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="novo_lancamento"
+        android:enabled="true"
+        android:icon="@drawable/ic_atalho_lancar"
+        android:shortcutShortLabel="@string/atalho_lancar_curto"
+        android:shortcutLongLabel="@string/atalho_lancar_longo">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="fluxai.app"
+            android:targetClass="fluxai.app.MainActivity">
+            <extra android:name="abrir" android:value="lancamento" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="ler_codigo"
+        android:enabled="true"
+        android:icon="@drawable/ic_atalho_codigo"
+        android:shortcutShortLabel="@string/atalho_codigo_curto"
+        android:shortcutLongLabel="@string/atalho_codigo_longo">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="fluxai.app"
+            android:targetClass="fluxai.app.MainActivity">
+            <extra android:name="abrir" android:value="leitor" />
+        </intent>
+    </shortcut>
+</shortcuts>

@@ -113,6 +113,42 @@ fun SettingsScreen(
     LaunchedEffect(workspaceUid) { vm.observar(workspaceUid) }
     val categoriasList by vm.categorias.collectAsStateWithLifecycle()
     val projetosList by vm.projetos.collectAsStateWithLifecycle()
+
+    // Automação e dados
+    var leituraAtiva by remember { mutableStateOf(leituraNotificacoesAtiva(context)) }
+    var lembreteAtivo by remember { mutableStateOf(lembreteDiarioAtivo(context)) }
+    var horaLembrete by remember { mutableIntStateOf(horaLembreteDiario(context)) }
+    var processandoDados by remember { mutableStateOf(false) }
+    var temExemplo by remember { mutableStateOf(false) }
+    var backupParaRestaurar by remember { mutableStateOf<ResumoBackup?>(null) }
+    LaunchedEffect(workspaceUid) { temExemplo = temDadosExemplo(workspaceUid) }
+    // Ao voltar das configurações do Android, atualiza o estado da leitura de notificações
+    val ciclo = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(ciclo) {
+        val observador = androidx.lifecycle.LifecycleEventObserver { _, evento ->
+            if (evento == androidx.lifecycle.Lifecycle.Event.ON_RESUME) leituraAtiva = leituraNotificacoesAtiva(context)
+        }
+        ciclo.lifecycle.addObserver(observador)
+        onDispose { ciclo.lifecycle.removeObserver(observador) }
+    }
+    val criarBackup = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            processandoDados = true
+            coroutineScope.launch {
+                runCatching { salvarBackupEm(context, uri, workspaceUid) }
+                    .onSuccess { Toast.makeText(context, "Backup salvo com $it registros.", Toast.LENGTH_LONG).show(); registrarAuditoria("Gerou backup completo") }
+                    .onFailure { Toast.makeText(context, "Falha no backup: ${it.message}", Toast.LENGTH_LONG).show() }
+                processandoDados = false
+            }
+        }
+    }
+    val abrirBackup = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) coroutineScope.launch {
+            runCatching { lerBackup(context, uri) }
+                .onSuccess { backupParaRestaurar = it }
+                .onFailure { Toast.makeText(context, it.message ?: "Arquivo inválido.", Toast.LENGTH_LONG).show() }
+        }
+    }
     // =========================================================================
 
     ModalNavigationDrawer(
@@ -297,6 +333,67 @@ fun SettingsScreen(
                     ) { mostrarDialogProjeto = true }
                 }
 
+                // ===== AUTOMAÇÃO =====
+                TituloSecaoConfig("Automação", colorTextSecondary)
+                GrupoConfig(cores) {
+                    LinhaConfig(
+                        Icons.Default.NotificationsActive, Color(0xFF26A69A), "Compras pelas notificações do banco",
+                        if (leituraAtiva) "Sugestões aparecem no Dashboard para confirmar" else "Desativada · toque para ativar", cores,
+                        trailing = { Text(if (leituraAtiva) "Ativa" else "Ativar", color = if (leituraAtiva) Color(0xFF26A69A) else colorAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                    ) { abrirPermissaoNotificacoes(context) }
+                    DivisorConfig(cores)
+                    LinhaConfig(
+                        Icons.Default.Alarm, Color(0xFFFB8C00), "Lembrete diário",
+                        if (lembreteAtivo) "Às ${horaLembrete}h, se nada foi registrado no dia" else "Desligado", cores,
+                        trailing = {
+                            Switch(checked = lembreteAtivo, onCheckedChange = { lembreteAtivo = it; configurarLembreteDiario(context, it, horaLembrete) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colorAccent))
+                        }
+                    ) { lembreteAtivo = !lembreteAtivo; configurarLembreteDiario(context, lembreteAtivo, horaLembrete) }
+                    if (lembreteAtivo) {
+                        Row(Modifier.fillMaxWidth().padding(start = 66.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(12, 18, 20, 22).forEach { h ->
+                                FilterChip(
+                                    selected = horaLembrete == h, onClick = { horaLembrete = h; configurarLembreteDiario(context, true, h) },
+                                    label = { Text("${h}h") }, shape = RoundedCornerShape(10.dp),
+                                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colorAccent.copy(alpha = 0.14f), selectedLabelColor = colorAccent)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ===== SEUS DADOS =====
+                TituloSecaoConfig("Seus dados", colorTextSecondary)
+                GrupoConfig(cores) {
+                    LinhaConfig(
+                        Icons.Default.CloudDownload, Color(0xFF1E88E5), "Fazer backup completo",
+                        if (processandoDados) "Aguarde..." else "Salva tudo num arquivo que você guarda onde quiser", cores
+                    ) { if (!processandoDados) criarBackup.launch("FluxAi_backup_${java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())}.json") }
+                    DivisorConfig(cores)
+                    LinhaConfig(Icons.Default.Restore, Color(0xFF5C6BC0), "Restaurar backup", "Traz de volta os dados de um arquivo de backup", cores) {
+                        if (!processandoDados) abrirBackup.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
+                    }
+                    DivisorConfig(cores)
+                    LinhaConfig(
+                        Icons.Default.Science, Color(0xFF8D6E63), if (temExemplo) "Remover dados de exemplo" else "Carregar dados de exemplo",
+                        if (temExemplo) "Apaga só o que foi criado como exemplo" else "Preenche o mês com lançamentos fictícios para explorar", cores
+                    ) {
+                        if (!processandoDados) {
+                            processandoDados = true
+                            coroutineScope.launch {
+                                runCatching { if (temExemplo) removerDadosExemplo(workspaceUid) else carregarDadosExemplo(workspaceUid) }
+                                    .onSuccess {
+                                        Toast.makeText(context, if (temExemplo) "Dados de exemplo removidos." else "Dados de exemplo carregados.", Toast.LENGTH_SHORT).show()
+                                        temExemplo = !temExemplo
+                                    }
+                                    .onFailure { Toast.makeText(context, "Não foi possível: ${it.message}", Toast.LENGTH_LONG).show() }
+                                processandoDados = false
+                            }
+                        }
+                    }
+                }
+
                 // ===== CONTA CONJUNTA =====
                 TituloSecaoConfig("Conta conjunta", colorTextSecondary)
                 SecaoContaConjunta(
@@ -460,6 +557,40 @@ fun SettingsScreen(
                     }
                 },
                 confirmButton = { TextButton(onClick = { mostrarDialogProjeto = false }) { Text("Fechar") } }
+            )
+        }
+
+        backupParaRestaurar?.let { b ->
+            val data = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("pt", "BR")).format(java.util.Date(b.geradoEm))
+            AlertDialog(
+                onDismissRequest = { if (!processandoDados) backupParaRestaurar = null },
+                containerColor = colorSurface,
+                icon = { Icon(Icons.Default.Restore, null, tint = colorAccent) },
+                title = { Text("Restaurar backup?", fontWeight = FontWeight.Bold, color = colorTextPrimary) },
+                text = {
+                    Text(
+                        "Backup de $data com ${b.total} registros (${b.porColecao["despesas"] ?: 0} lançamentos). " +
+                            "Registros que já existem são substituídos pela versão do backup; o que foi criado depois continua.",
+                        color = colorTextSecondary
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        enabled = !processandoDados,
+                        onClick = {
+                            processandoDados = true
+                            coroutineScope.launch {
+                                runCatching { restaurarBackup(workspaceUid, b) }
+                                    .onSuccess { Toast.makeText(context, "Backup restaurado.", Toast.LENGTH_LONG).show(); registrarAuditoria("Restaurou backup") }
+                                    .onFailure { Toast.makeText(context, "Falha ao restaurar: ${it.message}", Toast.LENGTH_LONG).show() }
+                                processandoDados = false
+                                backupParaRestaurar = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorAccent)
+                    ) { if (processandoDados) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp) else Text("Restaurar") }
+                },
+                dismissButton = { TextButton(onClick = { backupParaRestaurar = null }, enabled = !processandoDados) { Text("Cancelar", color = colorTextSecondary) } }
             )
         }
 

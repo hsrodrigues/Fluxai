@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.firestore
@@ -151,7 +153,7 @@ fun AnalyticsScreen(
             topBar = {
                 CenterAlignedTopAppBar(
                     title = { Text("Análise BI", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorTextPrimary) },
-                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, null, tint = colorTextPrimary) } },
+                    navigationIcon = { IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, "Abrir menu", tint = colorTextPrimary) } },
                     actions = {
                         IconButton(onClick = { mostrarFiltros = true }) {
                             BadgedBox(badge = { if (filtros.quantidade > 0) Badge(containerColor = colorAccent) { Text("${filtros.quantidade}", color = Color.White) } }) {
@@ -282,7 +284,8 @@ fun AnalyticsScreen(
                                 Spacer(Modifier.height(16.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(contentAlignment = Alignment.Center) {
-                                        Canvas(Modifier.size(128.dp)) {
+                                        val descricaoRosca = bi.porCategoria.joinToString("; ") { (cat, v) -> "$cat ${(v / bi.totalGeral * 100).toInt()}%" }
+                                        Canvas(Modifier.size(128.dp).semantics { contentDescription = "Gráfico de categorias: $descricaoRosca" }) {
                                             var inicio = -90f
                                             val espaco = if (bi.porCategoria.size > 1) 2f else 0f
                                             bi.porCategoria.forEach { (cat, valor) ->
@@ -346,6 +349,40 @@ fun AnalyticsScreen(
                                 BarraDividida("Cartão", bi.totalCartao, "Pix / débito", bi.totalGeral - bi.totalCartao, Color(0xFFE91E63), Color(0xFF03A9F4), colorTextPrimary, colorTextSecondary, ::brl)
                                 Spacer(Modifier.height(16.dp))
                                 BarraDividida("Pago", bi.totalPago, "A pagar", bi.totalGeral - bi.totalPago, Color(0xFF26A69A), progressTrackBg, colorTextPrimary, colorTextSecondary, ::brl)
+                            }
+                        }
+
+                        // ===== ACERTO DE CONTAS (conta conjunta) =====
+                        val acerto = calcularAcerto(despesas, usuario?.uid ?: "", usuario?.displayName?.split(" ")?.firstOrNull() ?: "Você")
+                        if (acerto != null && filtros.quantidade == 0) {
+                            item {
+                                CartaoBI(colorSurface, Color(0xFF26A69A).copy(alpha = 0.35f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Groups, null, tint = Color(0xFF26A69A), modifier = Modifier.size(20.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Acerto de contas do mês", fontWeight = FontWeight.Bold, color = colorTextPrimary)
+                                    }
+                                    Text("Divisão igual do que já foi pago · ${brl(acerto.porPessoa)} para cada", fontSize = 11.sp, color = colorTextSecondary)
+                                    Spacer(Modifier.height(12.dp))
+                                    acerto.participantes.forEach { p ->
+                                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Box(Modifier.size(30.dp).background(Color(0xFF26A69A).copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                                                Text(p.nome.take(1).uppercase(), fontWeight = FontWeight.Bold, color = Color(0xFF26A69A))
+                                            }
+                                            Spacer(Modifier.width(10.dp))
+                                            Text(if (p.uid == usuario?.uid) "${p.nome} (você)" else p.nome, fontSize = 14.sp, color = colorTextPrimary, modifier = Modifier.weight(1f))
+                                            Text("pagou ${brl(p.pagou)}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colorTextPrimary)
+                                        }
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    if (acerto.transferencias.isEmpty()) {
+                                        Text("Tudo certo: cada um pagou a sua parte.", fontSize = 13.sp, color = Color(0xFF43A047), fontWeight = FontWeight.SemiBold)
+                                    } else acerto.transferencias.forEach { t ->
+                                        Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF26A69A).copy(alpha = 0.08f), modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                            Text("${t.de} deve ${brl(t.valor)} para ${t.para}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colorTextPrimary, modifier = Modifier.padding(12.dp))
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -610,7 +647,9 @@ private fun GraficoHistorico(meses: List<MesHistorico>, corDespesa: Color, corTe
     val maximo = (meses.maxOfOrNull { maxOf(it.renda, it.despesas) } ?: 0.0).coerceAtLeast(1.0)
     val corRenda = Color(0xFF43A047)
     Column {
-        Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+        val fmt = remember { java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
+        val descricao = meses.joinToString("; ") { "${it.rotulo}: renda ${fmt.format(it.renda)}, despesas ${fmt.format(it.despesas)}" }
+        Canvas(Modifier.fillMaxWidth().height(120.dp).semantics { contentDescription = "Gráfico dos últimos meses. $descricao" }) {
             val larguraGrupo = size.width / meses.size
             val larguraBarra = (larguraGrupo * 0.28f).coerceAtMost(14.dp.toPx())
             meses.forEachIndexed { i, m ->

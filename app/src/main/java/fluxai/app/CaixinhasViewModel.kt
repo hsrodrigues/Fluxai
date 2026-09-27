@@ -30,14 +30,19 @@ class CaixinhasViewModel : ViewModel() {
         ouvinte?.remove()
         ouvinte = usuarioDoc().collection("caixinhas").addSnapshotListener { snap, _ ->
             _caixinhas.value = snap?.documents?.mapNotNull { d ->
-                runCatching { Caixinha(d.id, d.getString("nome") ?: "", d.getDouble("meta") ?: 0.0, d.getDouble("saldo") ?: 0.0, d.getString("icone") ?: "savings") }.getOrNull()
+                runCatching { Caixinha(d.id, d.getString("nome") ?: "", d.getDouble("meta") ?: 0.0, d.getDouble("saldo") ?: 0.0, d.getString("icone") ?: "savings", d.getString("prazo") ?: "") }.getOrNull()
             } ?: emptyList()
         }
     }
 
-    fun criar(nome: String, meta: Double, icone: String, aoTerminar: (Boolean) -> Unit) {
+    // Prazo vazio segura a meta sem data; com prazo, o app calcula quanto guardar por mês
+    fun definirPrazo(cx: Caixinha, prazo: String) {
+        usuarioDoc().collection("caixinhas").document(cx.id).update("prazo", prazo)
+    }
+
+    fun criar(nome: String, meta: Double, icone: String, prazo: String, aoTerminar: (Boolean) -> Unit) {
         usuarioDoc().collection("caixinhas")
-            .add(mapOf("nome" to nome.trim(), "meta" to meta, "saldo" to 0.0, "icone" to icone))
+            .add(mapOf("nome" to nome.trim(), "meta" to meta, "saldo" to 0.0, "icone" to icone, "prazo" to prazo))
             .addOnSuccessListener { aoTerminar(true) }
             .addOnFailureListener { aoTerminar(false) }
     }
