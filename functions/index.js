@@ -13,6 +13,8 @@ const GROQ_API_KEY_CONSULTOR = defineSecret("GROQ_API_KEY_CONSULTOR");
 const PERFIS = {
   ocr: { chave: GROQ_API_KEY_OCR, modelo: "openai/gpt-oss-20b", temperatura: 0.1, maxTokens: 1024 },
   consultor: { chave: GROQ_API_KEY_CONSULTOR, modelo: "openai/gpt-oss-20b", temperatura: 0.5, maxTokens: 1500, reasoning: "low" },
+  // Fatura/extrato em PDF: lista longa de lançamentos, precisa de mais espaço na resposta
+  extrato: { chave: GROQ_API_KEY_OCR, modelo: "openai/gpt-oss-20b", temperatura: 0.1, maxTokens: 8000, reasoning: "low" },
   // Conversa de acompanhamento com o Consultor: respostas curtas, histórico limitado
   chat: { chave: GROQ_API_KEY_CONSULTOR, modelo: "openai/gpt-oss-20b", temperatura: 0.6, maxTokens: 900, reasoning: "low", maxMensagens: 10 },
 };

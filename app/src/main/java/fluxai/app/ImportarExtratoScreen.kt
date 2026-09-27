@@ -89,10 +89,18 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
     val categorias = (CategoriasPadrao + categoriasCustom).distinct()
 
     // Lê o arquivo, separa as linhas e marca o que já parece lançado no app
-    fun processar(texto: String, nome: String) {
+    fun processarItens(obterItens: suspend () -> List<ItemExtrato>) {
         carregando = true
         escopo.launch {
-            val itens = withContext(Dispatchers.Default) { lerExtrato(nome, texto, fatura) }
+            val itens = try { obterItens() } catch (e: Exception) {
+                carregando = false
+                Toast.makeText(context, when (e) {
+                    is PdfProtegido -> "Este PDF tem senha. Baixe a fatura sem senha no app do banco, ou use o arquivo OFX/CSV."
+                    is FalhaIA -> e.message ?: "Falha ao ler o PDF."
+                    else -> "Não foi possível ler o arquivo."
+                }, Toast.LENGTH_LONG).show()
+                return@launch
+            }
             val meses = itens.map { it.data.mesAno }.distinct()
             val existentes = runCatching {
                 meses.chunked(30).flatMap { parte -> usuarioDoc.collection("despesas").whereIn("mesAno", parte).get().await().documents.map { lerDespesa(it) } }
@@ -104,15 +112,24 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                 LinhaImportacao(item, if (item.entrada) "Renda" else sugerirCategoria(item.descricao), marcada = !item.entrada && !dup, duplicada = dup)
             }
             carregando = false
-            if (itens.isEmpty()) Toast.makeText(context, "Não encontrei lançamentos nesse arquivo. Use o OFX ou CSV exportado pelo banco.", Toast.LENGTH_LONG).show()
+            if (itens.isEmpty()) Toast.makeText(context, "Não encontrei lançamentos nesse arquivo. Use o PDF, OFX ou CSV exportado pelo banco.", Toast.LENGTH_LONG).show()
         }
     }
+
+    fun processar(texto: String, nome: String) = processarItens { withContext(Dispatchers.Default) { lerExtrato(nome, texto, fatura) } }
 
     val seletor = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         val nome = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cur ->
             if (cur.moveToFirst()) cur.getString(0) else null
         } ?: "extrato"
+        // PDF: texto lido por OCR e lançamentos separados pela IA (não depende do sinal dos valores)
+        if (context.contentResolver.getType(uri) == "application/pdf" || nome.lowercase().endsWith(".pdf")) {
+            nomeArquivo = nome
+            textoBruto = null
+            processarItens { lerPdfExtrato(context, uri) }
+            return@rememberLauncherForActivityResult
+        }
         val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
         if (bytes == null) { Toast.makeText(context, "Não foi possível ler o arquivo.", Toast.LENGTH_SHORT).show(); return@rememberLauncherForActivityResult }
         // Bancos brasileiros ainda exportam em Latin-1; se o UTF-8 der caracteres inválidos, tenta de novo
@@ -205,7 +222,7 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                     Surface(shape = RoundedCornerShape(20.dp), color = c.superficie, border = BorderStroke(1.dp, c.divisor), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("Traga o mês inteiro de uma vez", fontWeight = FontWeight.Bold, color = c.texto)
-                            Text("No app do banco, exporte o extrato ou a fatura em OFX ou CSV e escolha o arquivo aqui. Você revisa tudo antes de importar.",
+                            Text("Escolha a fatura ou o extrato em PDF, OFX ou CSV (baixe no app do banco). Você revisa tudo antes de importar.",
                                 fontSize = 13.sp, color = c.textoFraco, lineHeight = 18.sp)
                             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                                 listOf(false to "Extrato da conta", true to "Fatura do cartão").forEachIndexed { i, (valor, rotulo) ->
@@ -235,7 +252,7 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                             }
                             if (!fatura) Text("O saldo da conta no app não muda: o extrato já está refletido no saldo do banco.", fontSize = 11.sp, color = c.textoFraco)
                             Button(
-                                onClick = { seletor.launch(arrayOf("text/*", "application/x-ofx", "application/ofx", "application/vnd.ms-excel", "application/octet-stream")) },
+                                onClick = { seletor.launch(arrayOf("application/pdf", "text/*", "application/x-ofx", "application/ofx", "application/vnd.ms-excel", "application/octet-stream")) },
                                 enabled = !carregando && !importando, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = c.destaque)
                             ) {
@@ -327,7 +344,7 @@ fun ImportarExtratoScreen(onLogout: () -> Unit) {
                                 Icon(Icons.Default.Description, null, Modifier.size(40.dp), tint = c.destaque)
                             }
                             Spacer(Modifier.height(12.dp))
-                            Text("Formatos aceitos: OFX (todos os bancos) e CSV (Nubank, Inter, C6 e planilhas com data, descrição e valor).",
+                            Text("Formatos aceitos: PDF da fatura ou extrato (lido com IA), OFX (todos os bancos) e CSV (Nubank, Inter, C6 e planilhas com data, descrição e valor).",
                                 fontSize = 12.sp, color = c.textoFraco, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
                         }
                     }

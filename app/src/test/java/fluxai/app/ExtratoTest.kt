@@ -80,3 +80,27 @@ class ExtratoTest {
         assertEquals("Outros", sugerirCategoria("Loja XYZ"))
     }
 }
+
+class ExtratoPdfTest {
+    @Test
+    fun leLinhasDaIA() {
+        val resposta = """
+            05/09|IFOOD *RESTAURANTE|45.90|S
+            12/08|LOJA X 03/10|120,00|S
+            20/09|Pagamento recebido|800.00|E
+            Total da fatura|999
+            ```
+        """.trimIndent()
+        val itens = lerLinhasFaturaIA(resposta, DataSimples(27, 9, 2026))
+        assertEquals(3, itens.size)
+        assertEquals(ItemExtrato(DataSimples(5, 9, 2026), "Ifood *Restaurante", 45.90, entrada = false), itens[0])
+        assertEquals(120.0, itens[1].valor, 0.001)
+        assertTrue(itens[2].entrada)
+    }
+
+    @Test
+    fun mesDepoisDoAtualEhDoAnoPassado() {
+        val item = lerLinhasFaturaIA("15/12|Presente|50.00|S", DataSimples(10, 1, 2027)).single()
+        assertEquals(DataSimples(15, 12, 2026), item.data)
+    }
+}
