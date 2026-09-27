@@ -37,8 +37,8 @@ jobs:
           DEBUG_KEYSTORE: ${{ secrets.DEBUG_KEYSTORE }}
         run: |
           echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
-          mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
+          echo "$DEBUG_KEYSTORE" | base64 -d > "$RUNNER_TEMP/fluxai.keystore"
+          echo "FLUXAI_KEYSTORE=$RUNNER_TEMP/fluxai.keystore" >> "$GITHUB_ENV"
           touch local.properties
 
       - name: Compilar APK release
@@ -46,6 +46,15 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease -PversionCodeCI=${{ steps.versao.outputs.codigo }}
           cp app/build/outputs/apk/release/app-release.apk FluxAi.apk
+
+      # Trava de segurança: só publica se o APK estiver assinado com a chave original do app
+      # (outra chave impede atualizar por cima e quebra o login do Google)
+      - name: Conferir assinatura
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          "$APKSIGNER" verify --print-certs FluxAi.apk | tee assinatura.txt
+          grep -qi "SHA-256 digest: aeb666444a8be9c87806375bfd63bc5cb16f508bf2364fea0174431c16b42e97" assinatura.txt \
+            || { echo "APK assinado com a chave errada: release cancelada."; exit 1; }
 
       - uses: softprops/action-gh-release@v2
         with:

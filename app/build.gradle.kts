@@ -46,13 +46,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Chave que assina o app (a mesma desde a primeira versão). O login do Google no Firebase está
+    // ligado à impressão digital dela: trocar de chave quebra o login e impede atualizar por cima.
+    // No GitHub Actions o arquivo vem do segredo DEBUG_KEYSTORE, pelo caminho em FLUXAI_KEYSTORE.
+    signingConfigs {
+        create("fluxai") {
+            storeFile = file(System.getenv("FLUXAI_KEYSTORE") ?: "${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             // R8: ofusca o código e remove o que não é usado (dificulta extrair chaves e reduz o APK)
             isMinifyEnabled = true
             isShrinkResources = true
             // Mesma chave dos builds de debug: instala por cima das versões já distribuídas sem apagar dados
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("fluxai")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
