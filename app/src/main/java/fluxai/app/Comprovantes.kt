@@ -64,6 +64,15 @@ suspend fun removerComprovante(workspaceUid: String, despesa: Despesa) {
     Firebase.firestore.collection("usuarios").document(workspaceUid).collection("despesas").document(despesa.id).update("comprovante", FieldValue.delete()).await()
 }
 
+// Mensagem clara para as falhas de envio mais comuns (sem o texto técnico do Firebase)
+fun mensagemErroComprovante(e: Throwable): String = when ((e as? com.google.firebase.storage.StorageException)?.errorCode) {
+    com.google.firebase.storage.StorageException.ERROR_OBJECT_NOT_FOUND,
+    com.google.firebase.storage.StorageException.ERROR_BUCKET_NOT_FOUND -> "O armazenamento de comprovantes ainda não está ativo no servidor."
+    com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED -> "Sem permissão para salvar o comprovante nesta conta."
+    com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED -> "Sem conexão. Tente anexar de novo quando a internet voltar."
+    else -> "Não foi possível enviar o comprovante."
+}
+
 // Ao excluir um lançamento, a foto vai junto
 fun apagarArquivoComprovante(despesa: Despesa) {
     despesa.comprovante?.let { Firebase.storage.reference.child(it).delete() }

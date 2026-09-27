@@ -216,6 +216,6 @@ fun enviarComprovanteComAviso(context: Context, workspaceUid: String, despesa: D
     escopo.launch {
         runCatching { enviarComprovante(context, workspaceUid, despesa.id, uri) }
             .onSuccess { Toast.makeText(context, "Comprovante anexado.", Toast.LENGTH_SHORT).show() }
-            .onFailure { Toast.makeText(context, "Não foi possível enviar: ${it.message}", Toast.LENGTH_LONG).show() }
+            .onFailure { Toast.makeText(context, mensagemErroComprovante(it), Toast.LENGTH_LONG).show() }
     }
 }

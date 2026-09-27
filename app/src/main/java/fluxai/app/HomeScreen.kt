@@ -479,7 +479,7 @@ fun HomeScreen(
                 // O comprovante sobe em segundo plano, ligado à primeira parcela
                 if (uriComprovante != null) {
                     runCatching { enviarComprovante(appContext, workspaceUid, primeiraRef.id, uriComprovante) }
-                        .onFailure { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(appContext, "Lançamento salvo, mas o comprovante não subiu: ${it.message}", Toast.LENGTH_LONG).show() } }
+                        .onFailure { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(appContext, "Lançamento salvo, mas o comprovante não subiu. ${mensagemErroComprovante(it)}", Toast.LENGTH_LONG).show() } }
                 }
                 // Avisa na hora se a categoria passou de 80% do limite do mês
                 runCatching {
