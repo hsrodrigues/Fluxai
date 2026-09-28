@@ -20,7 +20,7 @@ import java.util.Date
 // então importar o mesmo backup duas vezes não duplica nada.
 // =========================================================================
 val ColecoesBackup = listOf(
-    "despesas", "saldos", "cartoes", "contas", "caixinhas", "categorias_custom",
+    "despesas", "saldos", "cartoes", "contas", "caixinhas", "investimentos", "categorias_custom",
     "projetos", "configuracoes", "ativos", "contas_celular"
 )
 

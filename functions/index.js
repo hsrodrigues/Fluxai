@@ -169,3 +169,74 @@ exports.importarContas = onCall(
     return { novas };
   }
 );
+
+// Cotações para a carteira de investimentos: B3 (ações, FIIs, ETFs) pelo Yahoo Finance e cripto pela AwesomeAPI.
+// Pelo servidor para trocar a fonte sem atualizar o app. Cache de 5 min por ativo.
+const cacheCotacoes = new Map();
+const CACHE_COTACAO_MS = 5 * 60 * 1000;
+
+async function cotacaoB3(ticker) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}.SA?range=1mo&interval=1d`;
+  const resp = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  if (!resp.ok) return null;
+  const r = (await resp.json())?.chart?.result?.[0];
+  const preco = r?.meta?.regularMarketPrice;
+  if (typeof preco !== "number") return null;
+  // Último fechamento do mês anterior (base do "rendeu no mês") e do pregão anterior (variação do dia)
+  const inicioMes = new Date(); inicioMes.setUTCDate(1); inicioMes.setUTCHours(0, 0, 0, 0);
+  const tempos = r.timestamp || [];
+  const fechamentos = r.indicators?.quote?.[0]?.close || [];
+  const validos = fechamentos.filter((v) => typeof v === "number");
+  const anterior = validos.length >= 2 ? validos[validos.length - 2] : r.meta.chartPreviousClose;
+  let precoInicioMes = null;
+  for (let i = 0; i < tempos.length; i++) {
+    if (tempos[i] * 1000 < inicioMes.getTime() && typeof fechamentos[i] === "number") precoInicioMes = fechamentos[i];
+  }
+  return {
+    preco,
+    variacaoDia: typeof anterior === "number" && anterior > 0 ? (preco / anterior - 1) * 100 : 0,
+    precoInicioMes: precoInicioMes ?? preco,
+    nome: r.meta.longName || r.meta.shortName || ticker,
+  };
+}
+
+async function cotacaoCripto(ticker) {
+  const resp = await fetch(`https://economia.awesomeapi.com.br/json/daily/${encodeURIComponent(ticker)}-BRL/35`);
+  if (!resp.ok) return null;
+  const dias = await resp.json();
+  if (!Array.isArray(dias) || dias.length === 0) return null;
+  const preco = Number(dias[0].bid);
+  if (!(preco > 0)) return null;
+  const inicioMes = new Date(); inicioMes.setUTCDate(1); inicioMes.setUTCHours(0, 0, 0, 0);
+  const antesDoMes = dias.find((d) => Number(d.timestamp) * 1000 < inicioMes.getTime());
+  return {
+    preco,
+    variacaoDia: Number(dias[0].pctChange) || 0,
+    precoInicioMes: antesDoMes ? Number(antesDoMes.bid) : preco,
+    nome: (dias[0].name || ticker).split("/")[0],
+  };
+}
+
+exports.cotacoes = onCall(
+  { region: "southamerica-east1", timeoutSeconds: 30, memory: "256MiB" },
+  async (request) => {
+    await exigirContaAtiva(request.auth);
+    const ativos = Array.isArray(request.data?.ativos) ? request.data.ativos.slice(0, 40) : [];
+    const resultado = {};
+    await Promise.all(ativos.map(async (a) => {
+      const ticker = String(a?.ticker || "").toUpperCase().trim();
+      const cripto = a?.tipo === "cripto";
+      if (!/^[A-Z0-9]{2,12}$/.test(ticker)) return;
+      const chave = `${cripto ? "c" : "b"}:${ticker}`;
+      const guardado = cacheCotacoes.get(chave);
+      if (guardado && Date.now() - guardado.em < CACHE_COTACAO_MS) { resultado[ticker] = guardado.dados; return; }
+      try {
+        const dados = cripto ? await cotacaoCripto(ticker) : await cotacaoB3(ticker);
+        if (dados) { cacheCotacoes.set(chave, { em: Date.now(), dados }); resultado[ticker] = dados; }
+      } catch (e) {
+        console.error(`Cotação ${chave}: ${e.message}`);
+      }
+    }));
+    return { cotacoes: resultado };
+  }
+);

@@ -347,7 +347,14 @@ fun DashboardScreen(
     // A projeção só faz sentido no mês corrente
     val mostrarPrevisao = mesAnoSelecionado == mesAtualStr
     // Metas com prazo: o aporte do mês que ainda falta sai da sobra disponível
-    val reservaMetas = remember(caixinhasMetas, despesasRaw, mesAnoSelecionado) { reservaPendenteMetas(caixinhasMetas, despesasRaw, mesAnoSelecionado) }
+    // Carteira de investimentos: card de patrimônio, metas ligadas a investimentos e contexto do Consultor IA
+    val vmInvestimentos: InvestimentosViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    LaunchedEffect(workspaceUid) { vmInvestimentos.observar(workspaceUid) }
+    val carteira by vmInvestimentos.estado.collectAsState()
+    val reservaMetas = remember(caixinhasMetas, despesasRaw, mesAnoSelecionado, carteira) {
+        val metasComInvestido = caixinhasMetas.map { it.copy(saldo = it.saldo + (carteira.porMeta[it.id] ?: 0.0)) }
+        reservaPendenteMetas(metasComInvestido, despesasRaw, mesAnoSelecionado)
+    }
     val previsao = remember(despesasRaw, sobraFinal, totalRenda, mostrarPrevisao, reservaMetas) {
         if (mostrarPrevisao) calcularPrevisao(despesasRaw, sobraFinal, totalRenda, reservaMetas = reservaMetas) else null
     }
@@ -531,6 +538,11 @@ fun DashboardScreen(
                     }
                 }
 
+                item {
+                    val navegar = LocalNavegar.current
+                    CardPatrimonioDashboard(carteira, colorSurface, colorDivider, colorTextPrimary, colorTextSecondary, colorAccent) { navegar("investimentos") }
+                }
+
                 // === INJETADO: Cotações e Mercado (AwesomeAPI) ===
                 item {
                     CotacoesWidget()
@@ -597,6 +609,7 @@ fun DashboardScreen(
                                             "- As ações devem ser possíveis ainda neste mês e ligadas às categorias e lançamentos informados.",
                                             "- Se a renda for zero, diga que ela não foi cadastrada e peça para registrá-la antes de uma análise completa.",
                                             "- Se estiver tudo saudável, reconheça e sugira o próximo passo (reserva de emergência, investir a sobra).",
+                                            "- Sobre investimentos, fale só de forma geral (reserva, diversificação, prazo). NUNCA recomende comprar ou vender um ativo, fundo ou título específico.",
                                             "- Texto puro: NÃO use markdown (sem **, #, tabelas). Para listas, comece a linha com \"• \".",
                                             "- Máximo de 130 palavras. Sem saudação e sem despedida.",
                                             "",
@@ -630,7 +643,9 @@ fun DashboardScreen(
                                             "[MAIORES LANÇAMENTOS]",
                                             maioresGastos.ifEmpty { "(nenhum)" },
                                             "",
-                                            blocoProjecao
+                                            blocoProjecao,
+                                            "",
+                                            resumoCarteiraParaIA(carteira) { rs(it) }
                                         ).joinToString("\n")
 
                                         contextoIA = prompt

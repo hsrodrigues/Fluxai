@@ -25,6 +25,7 @@ O **FluxAí** é um aplicativo Android nativo para controle financeiro pessoal e
 * **🏦 Contas bancárias:** saldo real de cada conta, entradas e transferências; lançamentos pagos descontam da conta escolhida.
 * **💳 Cartões:** limite, fatura atual e pagamento de fatura (inclusive parcial, com o restante lançado no mês seguinte).
 * **🔄 Hub de assinaturas:** custo fixo mensal e anual, contas que vencem em breve e atrasadas.
+* **📈 Investimentos:** carteira de renda fixa (CDI, Selic, prefixado, IPCA+, poupança, com IR estimado) e renda variável (ações, FIIs, ETFs e cripto com cotação do dia), patrimônio no Dashboard, quanto rendeu no mês e metas do Cofre ligadas a investimentos.
 * **🐷 Cofre/Metas:** caixinhas com prazo opcional; o app calcula quanto guardar por mês e reserva esse valor na previsão.
 * **📱 Planos e celular** e **🚗 Ativos & TCO** (custo total e manutenção de bens).
 * **🏦 Empréstimos:** registra o valor recebido e gera as parcelas automaticamente.

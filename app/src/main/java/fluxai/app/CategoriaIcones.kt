@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -65,7 +66,8 @@ val CatalogoIconesCategoria: List<Pair<String, ImageVector>> = listOf(
     "assinatura" to Icons.Default.Subscriptions,
     "impostos" to Icons.Default.Receipt,
     "outros" to Icons.Default.Category,
-    "estrela" to Icons.Default.Star
+    "estrela" to Icons.Default.Star,
+    "investimento" to Icons.AutoMirrored.Filled.TrendingUp
 )
 
 private val mapaIcones = CatalogoIconesCategoria.toMap()
@@ -81,6 +83,7 @@ private val categoriasPadrao: Map<String, Pair<String, Color>> = mapOf(
     "Empréstimo" to ("dinheiro" to Color(0xFF795548)),
     "Cartão de Crédito" to ("cartao" to Color(0xFF009688)),
     "Manutenção" to ("manutencao" to Color(0xFF8D6E63)),
+    "Investimentos" to ("investimento" to Color(0xFF7E57C2)),
     "Outros" to ("outros" to Color(0xFF607D8B))
 )
 private val corCategoriaCustom = Color(0xFFE91E63)

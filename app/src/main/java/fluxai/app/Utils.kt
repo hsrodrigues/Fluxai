@@ -64,7 +64,8 @@ data class Despesa(
     val contaId: String? = null,       // conta bancária que paga (ou pagou) o lançamento
     val pagoPor: String? = null,       // uid de quem marcou como pago (conta conjunta)
     val pagoPorNome: String? = null,
-    val comprovante: String? = null    // caminho da foto do comprovante no Firebase Storage
+    val comprovante: String? = null,   // caminho da foto do comprovante no Firebase Storage
+    val caixinhaId: String? = null     // aporte em investimento ligado a uma meta do Cofre
 )
 
 data class Cartao(

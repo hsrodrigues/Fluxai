@@ -88,7 +88,13 @@ fun CaixinhasScreen(
 
     val vm: CaixinhasViewModel = viewModel()
     LaunchedEffect(workspaceUid) { vm.observar(workspaceUid) }
-    val caixinhas by vm.caixinhas.collectAsStateWithLifecycle()
+    val caixinhasGuardadas by vm.caixinhas.collectAsStateWithLifecycle()
+    // Metas ligadas a investimentos somam o valor atual deles ao que foi guardado
+    val vmInvestimentos: InvestimentosViewModel = viewModel()
+    LaunchedEffect(workspaceUid) { vmInvestimentos.observar(workspaceUid) }
+    val carteira by vmInvestimentos.estado.collectAsStateWithLifecycle()
+    val caixinhas = remember(caixinhasGuardadas, carteira) { caixinhasGuardadas.map { it.copy(saldo = it.saldo + (carteira.porMeta[it.id] ?: 0.0)) } }
+    val originalDa = { cx: Caixinha -> caixinhasGuardadas.firstOrNull { it.id == cx.id } ?: cx }
     var mostrarModalNovaCaixinha by remember { mutableStateOf(false) }
     var caixinhaParaAporte by remember { mutableStateOf<Caixinha?>(null) }
 
@@ -172,11 +178,12 @@ fun CaixinhasScreen(
                     items(caixinhas.sortedByDescending { if (it.meta > 0) it.saldo / it.meta else 0.0 }, key = { it.id }) { cx ->
                         CardCaixinha(
                             caixinha = cx, isDark = isDark, moeda = moeda,
-                            onGuardar = { tipoAporte = "depositar"; caixinhaParaAporte = cx },
-                            onResgatar = { tipoAporte = "resgatar"; caixinhaParaAporte = cx },
-                            onDelete = { caixinhaParaExcluir = cx },
+                            onGuardar = { tipoAporte = "depositar"; caixinhaParaAporte = originalDa(cx) },
+                            onResgatar = { tipoAporte = "resgatar"; caixinhaParaAporte = originalDa(cx) },
+                            onDelete = { caixinhaParaExcluir = originalDa(cx) },
                             aporteMensal = aporteDoMes(cx, mesAtual),
-                            onDefinirPrazo = { caixinhaParaPrazo = cx }
+                            onDefinirPrazo = { caixinhaParaPrazo = originalDa(cx) },
+                            investido = carteira.porMeta[cx.id] ?: 0.0
                         )
                     }
                 }
@@ -343,7 +350,7 @@ fun CaixinhasScreen(
 @Composable
 fun CardCaixinha(
     caixinha: Caixinha, isDark: Boolean, moeda: java.text.NumberFormat, onGuardar: () -> Unit, onResgatar: () -> Unit, onDelete: () -> Unit,
-    aporteMensal: Double = 0.0, onDefinirPrazo: () -> Unit = {}
+    aporteMensal: Double = 0.0, onDefinirPrazo: () -> Unit = {}, investido: Double = 0.0
 ) {
     val verde = Color(0xFF43A047)
     val corTexto = if (isDark) Color.White else Color(0xFF1A1A1A)
@@ -375,6 +382,7 @@ fun CardCaixinha(
                         },
                         fontSize = 12.sp, color = if (concluida) verde else corFraca
                     )
+                    if (investido > 0) Text("Inclui ${moeda.format(investido)} em investimentos", fontSize = 11.sp, color = corFraca)
                 }
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Mais opções", tint = corFraca) }

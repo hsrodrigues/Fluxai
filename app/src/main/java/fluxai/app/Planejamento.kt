@@ -45,10 +45,11 @@ fun aporteDoMes(cx: Caixinha, mesAtual: String, guardadoNoMes: Double = 0.0): Do
     return if (meses <= 1) faltaNoInicio else faltaNoInicio / meses
 }
 
-// Quanto ainda falta reservar neste mês para as metas com prazo
+// Quanto ainda falta reservar neste mês para as metas com prazo.
+// Conta como guardado o que foi para a meta e os aportes em investimentos ligados a ela.
 fun reservaPendenteMetas(caixinhas: List<Caixinha>, despesasDoMes: List<Despesa>, mesAtual: String): Double =
     caixinhas.sumOf { cx ->
-        val guardado = despesasDoMes.filter { it.descricao == "Apontamento: ${cx.nome}" }.sumOf { it.valor }
+        val guardado = despesasDoMes.filter { it.descricao == "Apontamento: ${cx.nome}" || it.caixinhaId == cx.id }.sumOf { it.valor }
         (aporteDoMes(cx, mesAtual, guardado) - guardado).coerceAtLeast(0.0)
     }
 

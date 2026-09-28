@@ -67,7 +67,8 @@ fun lerDespesa(d: com.google.firebase.firestore.DocumentSnapshot) = Despesa(
     contaId = d.getString("contaId"),
     pagoPor = d.getString("pagoPor"),
     pagoPorNome = d.getString("pagoPorNome"),
-    comprovante = d.getString("comprovante")
+    comprovante = d.getString("comprovante"),
+    caixinhaId = d.getString("caixinhaId")
 )
 
 // Grava as escolhidas no mês atual como "A pagar", num lote só

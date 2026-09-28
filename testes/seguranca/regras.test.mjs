@@ -117,6 +117,20 @@ describe("Conta ativa", () => {
     assertFails(setDoc(doc(db("outro"), "usuarios/ativo/membros/terceiro"), { codigo: "C1" })));
 });
 
+describe("Investimentos", () => {
+  const inv = { nome: "CDB", tipo: "Renda fixa", movimentos: [{ id: "1", data: "2026-01-02", valor: 1000 }] };
+  test("ativo cadastra investimento próprio", () => assertSucceeds(setDoc(doc(db("ativo"), "usuarios/ativo/investimentos/i1"), inv)));
+  test("membro ativo vê investimentos do dono", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), "usuarios/ativo/investimentos/i2"), inv));
+    await assertSucceeds(getDoc(doc(db("membro"), "usuarios/ativo/investimentos/i2")));
+  });
+  test("pendente não cadastra investimento", () => assertFails(setDoc(doc(db("pendente"), "usuarios/pend/investimentos/i1"), inv)));
+  test("outra conta não lê investimentos", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), "usuarios/ativo/investimentos/i3"), inv));
+    await assertFails(getDoc(doc(db("outro"), "usuarios/ativo/investimentos/i3")));
+  });
+});
+
 describe("Convites", () => {
   test("ativo cria convite próprio com validade curta", () =>
     assertSucceeds(setDoc(doc(db("ativo"), "convites/A1"), { dono: "ativo", expiraEm: daquiDias(1) })));

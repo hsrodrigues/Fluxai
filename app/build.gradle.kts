@@ -121,6 +121,7 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")  // boleto e Pix
     // Testes
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303") // org.json real nos testes (o do Android é só um esqueleto)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

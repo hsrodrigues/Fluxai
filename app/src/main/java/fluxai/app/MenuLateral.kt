@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -167,6 +168,7 @@ fun MenuLateral(
             MenuItem("Contas bancárias", Icons.Default.AccountBalance, rotaAtual == "contas", colorAccent, colorTextSecondary) { abrir(null, "contas") }
             MenuItem("Cartões", Icons.Default.CreditCard, rotaAtual == "cartoes", colorAccent, colorTextSecondary) { abrir(onAbrirCartoes, "cartoes") }
             MenuItem("Cofre / Metas", Icons.Default.Savings, rotaAtual == "caixinhas", colorAccent, colorTextSecondary) { abrir(onAbrirCaixinhas, "caixinhas") }
+            MenuItem("Investimentos", Icons.AutoMirrored.Filled.TrendingUp, rotaAtual == "investimentos", colorAccent, colorTextSecondary) { abrir(null, "investimentos") }
             MenuItem("Hub de Assinaturas", Icons.Default.Autorenew, rotaAtual == "assinaturas", colorAccent, colorTextSecondary) { abrir(onAbrirAssinaturas, "assinaturas") }
             MenuItem("Planos e Celular", Icons.Default.SettingsCell, rotaAtual == "celular", colorAccent, colorTextSecondary) { abrir(onAbrirCelular, "celular") }
             MenuItem("Ativos & TCO", Icons.Default.Build, rotaAtual == "manutencao", colorAccent, colorTextSecondary) { abrir(onAbrirManutencao, "manutencao") }
