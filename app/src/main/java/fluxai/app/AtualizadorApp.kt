@@ -11,29 +11,27 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
-import com.google.firebase.Firebase
-import com.google.firebase.functions.functions
-import kotlinx.coroutines.tasks.await
 import java.io.File
 
-// Última versão publicada (GitHub Release privado, entregue pela Cloud Function "ultimaVersao" só para contas ativas)
-private val funcaoUltimaVersao get() = Firebase.functions("southamerica-east1").getHttpsCallable("ultimaVersao")
+// Última versão publicada no site do FluxAí (Firebase Hosting): versao.json + APK em /download
+data class VersaoRemota(val versao: Long, val urlApk: String)
 
-// Retorna null se não houver release, a conta não estiver ativa ou der erro de rede.
-suspend fun buscarUltimaVersao(): Long? = try {
-    val dados = funcaoUltimaVersao.call(mapOf("link" to false)).await().getData() as? Map<*, *>
-    (dados?.get("versao") as? Number)?.toLong()
+private const val URL_SITE = "https://fluxai-adbdf.web.app"
+
+// Chamar fora da thread principal. Retorna null se não houver versão publicada ou der erro de rede.
+fun buscarUltimaVersao(): VersaoRemota? = try {
+    val conn = java.net.URL("$URL_SITE/versao.json").openConnection() as java.net.HttpURLConnection
+    conn.useCaches = false
+    conn.connectTimeout = 8000
+    conn.readTimeout = 8000
+    if (conn.responseCode != 200) null else {
+        val json = org.json.JSONObject(conn.inputStream.bufferedReader().readText())
+        val versao = json.optLong("versao", 0L)
+        val caminhoApk = json.optString("apk")
+        if (versao > 0 && caminhoApk.isNotBlank()) VersaoRemota(versao, "$URL_SITE/$caminhoApk") else null
+    }
 } catch (e: Exception) {
     android.util.Log.e("FLUXAI_UPDATE", "Erro ao consultar atualização: ${e.message}")
-    null
-}
-
-// O link do APK é temporário (poucos minutos): pedido só na hora de baixar
-suspend fun buscarLinkAtualizacao(): String? = try {
-    val dados = funcaoUltimaVersao.call(mapOf("link" to true)).await().getData() as? Map<*, *>
-    dados?.get("urlApk") as? String
-} catch (e: Exception) {
-    android.util.Log.e("FLUXAI_UPDATE", "Erro ao gerar link da atualização: ${e.message}")
     null
 }
 

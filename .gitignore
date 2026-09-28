@@ -35,3 +35,8 @@ Desktop.ini
 
 # Cloud Functions
 functions/node_modules/
+
+# Site: APK e versão são gerados pelo publicar.ps1
+site/download/
+site/versao.json
+.firebase/

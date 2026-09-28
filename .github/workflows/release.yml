@@ -1,5 +1,5 @@
 # Publica o APK no GitHub Release sempre que uma tag v1.0.N é enviada.
-# O app consulta a versão pela function ultimaVersao (repo privado) e oferece a atualização sozinho.
+# O publicar.ps1 copia o APK para o site no Firebase Hosting, de onde o app se atualiza.
 name: Publicar APK
 
 on:

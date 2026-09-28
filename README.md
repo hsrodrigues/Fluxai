@@ -124,16 +124,14 @@ firebase deploy --only functions
 
 1. Faça o commit das alterações.
 2. Rode `.\publicar.ps1` — ele cria a tag `v1.0.N` e envia ao GitHub.
-3. O GitHub Actions compila o APK e cria o [Release](https://github.com/hsrodrigues/Fluxai/releases/latest) (privado); o app consulta a nova versão pela function `ultimaVersao`, que só entrega o APK a contas ativas.
+3. O GitHub Actions compila o APK e cria o Release (repositório privado).
+4. O script espera o build, baixa o APK e publica no site [fluxai-adbdf.web.app](https://fluxai-adbdf.web.app) (Firebase Hosting, pasta `site/`) junto com o `versao.json`; o app consulta esse arquivo, avisa da nova versão e instala a atualização.
 
 ## 🔐 Acesso
 
 * Todo cadastro novo fica **pendente** até o administrador (`hsrodrigues01@gmail.com`) ativar em **Menu → Usuários**.
 * A trava vale no servidor: `firestore.rules`, `storage.rules` e as functions exigem `acesso/{uid}.ativo == true`.
-* A function `ultimaVersao` lê o Release privado com um token do GitHub somente leitura:
-  ```bash
-  firebase functions:secrets:set GH_RELEASES_TOKEN
-  ```
+* O APK é público na página de download, mas sem conta ativada o app não abre nada.
 
 ## 📄 Licença
 

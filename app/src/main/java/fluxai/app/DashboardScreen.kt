@@ -128,6 +128,7 @@ fun DashboardScreen(
     var despesasRaw by remember { mutableStateOf<List<Despesa>>(emptyList()) }
 
     var vServidorState by remember { mutableLongStateOf(0L) }
+    var updateUrl by remember { mutableStateOf("") }
     var mostrarUpdateDialog by remember { mutableStateOf(false) }
     var mostrarDialogCalendario by remember { mutableStateOf(false) }
     var mostrarDialogEmprestimo by remember { mutableStateOf(false) }
@@ -230,11 +231,12 @@ fun DashboardScreen(
         if (System.currentTimeMillis() - atualizacaoVerificadaEm < INTERVALO_VERIFICAR_ATUALIZACAO_MS) return@LaunchedEffect
         // Ao abrir, o ON_RESUME logo em seguida reinicia este efeito e cancela a consulta em andamento:
         // por isso o horário só é marcado depois da resposta (senão a verificação nunca terminava)
-        val versaoRemota = buscarUltimaVersao()
+        val remota = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { buscarUltimaVersao() }
             ?: return@LaunchedEffect // falhou a rede: tenta de novo na próxima volta
         atualizacaoVerificadaEm = System.currentTimeMillis()
-        if (versaoRemota > BuildConfig.VERSION_CODE) {
-            vServidorState = versaoRemota
+        if (remota.versao > BuildConfig.VERSION_CODE) {
+            vServidorState = remota.versao
+            updateUrl = remota.urlApk
             mostrarUpdateDialog = true
         }
     }
@@ -1387,14 +1389,7 @@ fun DashboardScreen(
 
                             Spacer(Modifier.height(20.dp))
                             Button(
-                                onClick = {
-                                    mostrarUpdateDialog = false
-                                    coroutineScope.launch {
-                                        val link = buscarLinkAtualizacao()
-                                        if (link != null) baixarEInstalarApk(context, link, vServidorState)
-                                        else Toast.makeText(context, "Não foi possível baixar a atualização. Tente de novo.", Toast.LENGTH_LONG).show()
-                                    }
-                                },
+                                onClick = { baixarEInstalarApk(context, updateUrl, vServidorState); mostrarUpdateDialog = false },
                                 modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = colorAccent)
                             ) {

@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FluxAí · Gestão financeira inteligente</title>
+<meta name="description" content="FluxAí: controle financeiro pessoal e familiar para Android, com previsão do fim do mês, alertas de vencimento e consultor de IA.">
+<meta name="theme-color" content="#1C1236">
+<meta property="og:title" content="FluxAí · Gestão financeira inteligente">
+<meta property="og:description" content="Saiba hoje como seu mês vai terminar. Baixe o app para Android.">
+<meta property="og:image" content="https://fluxai-adbdf.web.app/img/og.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --roxo: #7E57C2;
+    --roxo-claro: #A78BFA;
+    --roxo-fundo: #F4F0FB;
+    --escuro-1: #2A1558;
+    --escuro-2: #1C1236;
+    --escuro-3: #0E0A1A;
+    --texto: #1E1B2E;
+    --texto-fraco: #5F5B70;
+    --borda: #E7E3F0;
+    --fundo: #FAF9FC;
+    --verde: #43A047;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif; color: var(--texto); background: var(--fundo); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; }
+  .conteiner { width: 100%; max-width: 1140px; margin: 0 auto; padding: 0 20px; }
+
+  /* Topo */
+  .topo { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
+  .topo .conteiner { display: flex; align-items: center; justify-content: space-between; height: 72px; }
+  .marca { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #fff; font-weight: 800; font-size: 20px; }
+  .marca img { width: 36px; height: 36px; border-radius: 10px; }
+  .topo nav { display: flex; gap: 28px; }
+  .topo nav a { color: rgba(255,255,255,.75); text-decoration: none; font-size: 15px; font-weight: 500; }
+  .topo nav a:hover { color: #fff; }
+
+  /* Hero */
+  .hero { position: relative; overflow: hidden; color: #fff; padding: 128px 0 96px;
+    background: radial-gradient(1200px 600px at 80% 10%, rgba(126,87,194,.45), transparent 60%),
+                linear-gradient(180deg, var(--escuro-1) 0%, var(--escuro-2) 55%, var(--escuro-3) 100%); }
+  .hero .conteiner { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; }
+  .hero-logo { width: 190px; margin-bottom: 28px; }
+  .selo { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: rgba(167,139,250,.15); border: 1px solid rgba(167,139,250,.35); color: var(--roxo-claro); font-size: 13px; font-weight: 600; margin-bottom: 20px; }
+  .hero h1 { font-size: clamp(34px, 5vw, 56px); line-height: 1.08; font-weight: 800; letter-spacing: -.02em; margin-bottom: 20px; }
+  .hero h1 span { background: linear-gradient(90deg, #C4B5FD, var(--roxo-claro)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.sub { font-size: 18px; color: rgba(255,255,255,.72); max-width: 520px; margin-bottom: 32px; }
+  .acoes { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .botao { display: inline-flex; align-items: center; gap: 12px; padding: 16px 28px; border-radius: 16px; font-weight: 700; font-size: 17px; text-decoration: none; transition: transform .15s, box-shadow .15s; }
+  .botao-principal { background: linear-gradient(135deg, #9575CD, var(--roxo)); color: #fff; box-shadow: 0 12px 32px rgba(126,87,194,.45); }
+  .botao-principal:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(126,87,194,.55); }
+  .botao-secundario { color: #fff; border: 1px solid rgba(255,255,255,.25); }
+  .botao-secundario:hover { background: rgba(255,255,255,.08); }
+  .botao svg { width: 22px; height: 22px; }
+  .botao small { display: block; font-size: 12px; font-weight: 500; opacity: .8; }
+  .info-versao { margin-top: 18px; font-size: 13px; color: rgba(255,255,255,.55); }
+
+  .celular { position: relative; justify-self: center; width: 290px; }
+  .celular .moldura { border-radius: 42px; padding: 10px; background: linear-gradient(145deg, #3a2a66, #150f26); box-shadow: 0 40px 80px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.08); }
+  .celular .moldura img { border-radius: 33px; }
+  .celular .brilho { position: absolute; inset: -40px; background: radial-gradient(closest-side, rgba(126,87,194,.5), transparent); z-index: -1; filter: blur(20px); }
+  .cartao-flutuante { position: absolute; background: #fff; color: var(--texto); border-radius: 16px; padding: 12px 16px; box-shadow: 0 16px 40px rgba(0,0,0,.3); font-size: 13px; }
+  .cartao-flutuante strong { display: block; font-size: 16px; }
+  .cf-1 { left: -70px; top: 22%; }
+  .cf-1 strong { color: var(--verde); }
+  .cf-2 { right: -60px; bottom: 18%; }
+  .cf-2 strong { color: var(--roxo); }
+
+  /* Números */
+  .numeros { background: #fff; border-bottom: 1px solid var(--borda); }
+  .numeros .conteiner { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; padding-top: 32px; padding-bottom: 32px; text-align: center; }
+  .numeros strong { display: block; font-size: 22px; font-weight: 800; color: var(--roxo); }
+  .numeros span { font-size: 14px; color: var(--texto-fraco); }
+
+  /* Seções */
+  section.bloco { padding: 96px 0; }
+  .titulo-secao { text-align: center; max-width: 640px; margin: 0 auto 56px; }
+  .titulo-secao .pre { color: var(--roxo); font-weight: 700; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; }
+  .titulo-secao h2 { font-size: clamp(28px, 3.6vw, 40px); line-height: 1.15; font-weight: 800; letter-spacing: -.02em; margin: 10px 0 14px; }
+  .titulo-secao p { color: var(--texto-fraco); font-size: 17px; }
+
+  .grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .recurso { background: #fff; border: 1px solid var(--borda); border-radius: 20px; padding: 28px; transition: transform .2s, box-shadow .2s; }
+  .recurso:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(46,26,94,.08); }
+  .recurso .icone { width: 48px; height: 48px; border-radius: 14px; background: var(--roxo-fundo); color: var(--roxo); display: grid; place-items: center; margin-bottom: 18px; }
+  .recurso .icone svg { width: 24px; height: 24px; }
+  .recurso h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .recurso p { color: var(--texto-fraco); font-size: 15px; }
+
+  /* Galeria */
+  .galeria-fundo { background: linear-gradient(180deg, var(--fundo), var(--roxo-fundo)); }
+  .galeria { display: flex; gap: 22px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 8px 20px 28px; scrollbar-width: thin; }
+  .galeria figure { flex: 0 0 220px; scroll-snap-align: center; }
+  .galeria img { border-radius: 26px; border: 6px solid #fff; box-shadow: 0 18px 40px rgba(46,26,94,.15); aspect-ratio: 540 / 1170; object-fit: cover; }
+  .galeria figcaption { text-align: center; font-size: 14px; font-weight: 600; color: var(--texto-fraco); margin-top: 14px; }
+  @media (min-width: 1180px) { .galeria { justify-content: flex-start; padding-left: calc((100vw - 1140px) / 2 + 20px); } }
+
+  /* Instalação */
+  .passos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; counter-reset: passo; }
+  .passo { background: #fff; border: 1px solid var(--borda); border-radius: 20px; padding: 28px 24px; position: relative; }
+  .passo::before { counter-increment: passo; content: counter(passo); display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--roxo); color: #fff; font-weight: 800; margin-bottom: 16px; }
+  .passo h3 { font-size: 17px; margin-bottom: 6px; }
+  .passo p { color: var(--texto-fraco); font-size: 14.5px; }
+  .aviso { margin-top: 28px; display: flex; gap: 14px; align-items: flex-start; background: #FFF8E6; border: 1px solid #F5DFA6; border-radius: 16px; padding: 18px 20px; font-size: 15px; color: #6B5314; }
+  .aviso svg { flex: 0 0 22px; width: 22px; height: 22px; margin-top: 2px; }
+
+  /* Segurança */
+  .seguranca { background: var(--escuro-2); color: #fff; border-radius: 32px; padding: 56px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+  .seguranca h2 { font-size: clamp(26px, 3vw, 36px); line-height: 1.15; margin-bottom: 14px; }
+  .seguranca > div > p { color: rgba(255,255,255,.7); }
+  .seguranca ul { list-style: none; display: grid; gap: 14px; }
+  .seguranca li { display: flex; gap: 12px; align-items: flex-start; color: rgba(255,255,255,.85); font-size: 15px; }
+  .seguranca li svg { flex: 0 0 22px; width: 22px; height: 22px; color: var(--roxo-claro); margin-top: 1px; }
+
+  /* Perguntas */
+  .perguntas { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
+  details { background: #fff; border: 1px solid var(--borda); border-radius: 16px; padding: 18px 22px; }
+  summary { cursor: pointer; font-weight: 700; font-size: 16px; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--roxo); font-size: 22px; line-height: 1; }
+  details[open] summary::after { content: "–"; }
+  details p { color: var(--texto-fraco); margin-top: 10px; font-size: 15px; }
+
+  /* Chamada final */
+  .chamada { text-align: center; color: #fff; padding: 88px 0; background: radial-gradient(800px 400px at 50% 0%, rgba(126,87,194,.5), transparent 70%), var(--escuro-3); }
+  .chamada img { width: 76px; height: 76px; border-radius: 20px; margin: 0 auto 22px; }
+  .chamada h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 800; margin-bottom: 12px; }
+  .chamada p { color: rgba(255,255,255,.7); margin-bottom: 30px; }
+  .chamada .acoes { justify-content: center; }
+
+  footer { background: var(--escuro-3); color: rgba(255,255,255,.5); font-size: 13px; padding: 28px 0 40px; border-top: 1px solid rgba(255,255,255,.08); }
+  footer .conteiner { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+  @media (max-width: 960px) {
+    .hero .conteiner { grid-template-columns: 1fr; text-align: center; }
+    .hero-logo { margin: 0 auto 24px; }
+    .hero p.sub { margin-left: auto; margin-right: auto; }
+    .acoes { justify-content: center; }
+    .celular { margin-top: 24px; }
+    .grade { grid-template-columns: repeat(2, 1fr); }
+    .passos { grid-template-columns: repeat(2, 1fr); }
+    .seguranca { grid-template-columns: 1fr; padding: 40px 28px; }
+  }
+  @media (max-width: 640px) {
+    .topo nav { display: none; }
+    .hero { padding: 104px 0 72px; }
+    .hero-logo { width: 150px; }
+    .numeros .conteiner { grid-template-columns: repeat(2, 1fr); }
+    .grade, .passos { grid-template-columns: 1fr; }
+    section.bloco { padding: 72px 0; }
+    .celular { width: 240px; }
+    .cf-1 { left: -24px; } .cf-2 { right: -20px; }
+    .botao { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <div class="conteiner">
+    <a href="#" class="marca"><img src="img/icone.png" alt="">FluxAí</a>
+    <nav>
+      <a href="#recursos">Recursos</a>
+      <a href="#telas">Telas</a>
+      <a href="#instalar">Como instalar</a>
+      <a href="#perguntas">Dúvidas</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="conteiner">
+    <div>
+      <img class="hero-logo" src="img/logo.png" alt="FluxAí">
+      <div class="selo">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85a.64.64 0 0 0-.83.22l-1.88 3.24A11.4 11.4 0 0 0 12 8c-1.63 0-3.18.35-4.47.91L5.65 5.67a.64.64 0 0 0-.87-.2c-.28.18-.37.54-.22.83L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52M7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5m10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5"/></svg>
+        App para Android
+      </div>
+      <h1>Saiba <span>hoje</span> como seu mês vai terminar.</h1>
+      <p class="sub">O FluxAí organiza suas contas, cartões e metas, prevê a sobra do fim do mês e avisa antes de cada vencimento, com um consultor de IA para tirar dúvidas sobre o seu dinheiro.</p>
+      <div class="acoes">
+        <a class="botao botao-principal link-apk" href="download/FluxAi.apk" download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
+          <span>Baixar para Android<small class="rotulo-versao">Versão mais recente</small></span>
+        </a>
+        <a class="botao botao-secundario" href="#instalar">Como instalar</a>
+      </div>
+      <p class="info-versao">Android 7.0 ou superior · <span class="rotulo-tamanho">APK oficial assinado</span></p>
+    </div>
+    <div class="celular">
+      <div class="brilho"></div>
+      <div class="moldura"><img src="img/dashboard.webp" alt="Tela do Dashboard do FluxAí" width="540" height="1170"></div>
+      <div class="cartao-flutuante cf-1">Sobra no fim do mês<strong>R$ 2.590,09</strong></div>
+      <div class="cartao-flutuante cf-2">Pode gastar por dia<strong>R$ 690,35</strong></div>
+    </div>
+  </div>
+</section>
+
+<div class="numeros">
+  <div class="conteiner">
+    <div><strong>Previsão</strong><span>da sobra do mês</span></div>
+    <div><strong>IA</strong><span>consultor financeiro</span></div>
+    <div><strong>Família</strong><span>conta conjunta</span></div>
+    <div><strong>Biometria</strong><span>acesso protegido</span></div>
+  </div>
+</div>
+
+<section class="bloco" id="recursos">
+  <div class="conteiner">
+    <div class="titulo-secao">
+      <div class="pre">Recursos</div>
+      <h2>Tudo o que você precisa para cuidar do seu dinheiro</h2>
+      <p>Do lançamento do dia a dia ao relatório do ano, sem planilha.</p>
+    </div>
+    <div class="grade">
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
+        <h3>Análise preditiva</h3>
+        <p>Calcula o ritmo de gastos, estima a sobra do fim do mês e mostra quanto dá para gastar por dia.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V7a4 4 0 0 1 4-4z"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M19 3l1.5 1.5M21 7h-2"/></svg></div>
+        <h3>Consultor de IA</h3>
+        <p>Diagnóstico do mês com ações concretas em reais e um chat para tirar dúvidas sobre os seus números.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M17 8v8"/></svg></div>
+        <h3>Lançamento rápido</h3>
+        <p>Leia a nota fiscal pela câmera ou o código do boleto e do Pix: valor e vencimento se preenchem sozinhos.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+        <h3>Alertas de vencimento</h3>
+        <p>Aviso diário das contas vencidas, de hoje e dos próximos dias, com botão “Já paguei” e alerta de feriado bancário.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
+        <h3>Cartões e contas</h3>
+        <p>Limite, fatura atual e pagamento de fatura; saldo real de cada conta bancária e importação de extrato OFX ou CSV.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9.5" r="2.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M15 20a4.5 4.5 0 0 1 6.5-4"/></svg></div>
+        <h3>Conta conjunta</h3>
+        <p>A família compartilha o mesmo espaço financeiro por convite, e cada pagamento registra quem pagou.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7h-1V5a3 3 0 0 0-6 0v2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><circle cx="12" cy="14" r="2"/></svg></div>
+        <h3>Cofre e metas</h3>
+        <p>Caixinhas com prazo: o app calcula quanto guardar por mês e já reserva esse valor na previsão.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></div>
+        <h3>Hub de assinaturas</h3>
+        <p>Custo fixo mensal e anual das assinaturas, com as que vencem em breve e as atrasadas.</p>
+      </div>
+      <div class="recurso">
+        <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15v2M11 11v6M15 7v10M19 12v5"/></svg></div>
+        <h3>Análise BI e relatório anual</h3>
+        <p>Composição dos gastos, limites por categoria, comparação com o ano anterior e resumo para o Imposto de Renda.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="bloco galeria-fundo" id="telas">
+  <div class="conteiner">
+    <div class="titulo-secao">
+      <div class="pre">Telas</div>
+      <h2>Bonito, rápido e fácil de usar</h2>
+      <p>Tema claro e escuro, cor de destaque personalizável e widget na tela inicial.</p>
+    </div>
+  </div>
+  <div class="galeria">
+    <figure><img src="img/dashboard.webp" alt="Dashboard" loading="lazy" width="540" height="1170"><figcaption>Dashboard do mês</figcaption></figure>
+    <figure><img src="img/novo_lancamento.webp" alt="Novo lançamento" loading="lazy" width="540" height="1170"><figcaption>Novo lançamento</figcaption></figure>
+    <figure><img src="img/lancamentos.webp" alt="Lançamentos" loading="lazy" width="540" height="1170"><figcaption>Lançamentos</figcaption></figure>
+    <figure><img src="img/analise.webp" alt="Análise BI" loading="lazy" width="540" height="1170"><figcaption>Análise BI</figcaption></figure>
+    <figure><img src="img/cartoes.webp" alt="Cartões" loading="lazy" width="540" height="1170"><figcaption>Cartões</figcaption></figure>
+    <figure><img src="img/caixinhas.webp" alt="Cofre e metas" loading="lazy" width="540" height="1170"><figcaption>Cofre e metas</figcaption></figure>
+    <figure><img src="img/assinaturas.webp" alt="Assinaturas" loading="lazy" width="540" height="1170"><figcaption>Assinaturas</figcaption></figure>
+    <figure><img src="img/menu.webp" alt="Menu" loading="lazy" width="540" height="1170"><figcaption>Menu</figcaption></figure>
+  </div>
+</section>
+
+<section class="bloco" id="instalar">
+  <div class="conteiner">
+    <div class="titulo-secao">
+      <div class="pre">Como instalar</div>
+      <h2>Pronto em poucos minutos</h2>
+      <p>O FluxAí é instalado direto pelo arquivo oficial, sem passar pela loja.</p>
+    </div>
+    <div class="passos">
+      <div class="passo"><h3>Baixe o app</h3><p>Toque em “Baixar para Android” pelo celular. O arquivo FluxAi.apk vai para os downloads.</p></div>
+      <div class="passo"><h3>Permita a instalação</h3><p>Ao abrir o arquivo, o Android pede para permitir apps desta fonte. Autorize para o navegador ou gerenciador de arquivos.</p></div>
+      <div class="passo"><h3>Crie sua conta</h3><p>Abra o FluxAí e entre com o Google ou com e-mail e senha.</p></div>
+      <div class="passo"><h3>Aguarde a ativação</h3><p>Seu acesso é liberado pelo administrador. Assim que for ativado, o app abre sozinho.</p></div>
+    </div>
+    <div class="aviso">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      <div><strong>Acesso somente por convite.</strong> Qualquer pessoa pode baixar o aplicativo, mas o uso só é liberado depois que o administrador ativa a conta.</div>
+    </div>
+  </div>
+</section>
+
+<section class="bloco" style="padding-top:0">
+  <div class="conteiner">
+    <div class="seguranca">
+      <div>
+        <h2>Seus dados protegidos</h2>
+        <p>Os dados ficam na nuvem do Google (Firebase), acessíveis somente por você e por quem você convidar para a conta conjunta.</p>
+      </div>
+      <ul>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Desbloqueio por digital, rosto ou PIN do aparelho</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Nenhuma chave de IA dentro do aplicativo: tudo passa pelo servidor</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Backup completo e exclusão de conta com todos os dados, quando quiser</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Funciona sem internet e sincroniza sozinho quando a conexão volta</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="bloco" id="perguntas" style="padding-top:0">
+  <div class="conteiner">
+    <div class="titulo-secao">
+      <div class="pre">Dúvidas</div>
+      <h2>Perguntas frequentes</h2>
+    </div>
+    <div class="perguntas">
+      <details><summary>O FluxAí é seguro de instalar fora da Play Store?</summary><p>Sim. O arquivo desta página é o APK oficial, sempre assinado com a mesma chave. O aviso do Android aparece para qualquer app instalado fora da loja.</p></details>
+      <details><summary>Como recebo as atualizações?</summary><p>O próprio app avisa quando sai uma versão nova e instala a atualização com um toque. Você também pode baixar a versão mais recente nesta página a qualquer momento, sem perder seus dados.</p></details>
+      <details><summary>Criei a conta e o app pede para aguardar. O que faço?</summary><p>O acesso é liberado pelo administrador. Depois da ativação, o app abre sozinho, sem precisar reinstalar.</p></details>
+      <details><summary>Posso usar com minha família?</summary><p>Sim. Pela conta conjunta, o dono gera um código de convite e todos compartilham o mesmo espaço financeiro. Cada pessoa convidada também precisa ter a conta ativada.</p></details>
+      <details><summary>Funciona no iPhone?</summary><p>Por enquanto, o FluxAí é só para Android 7.0 ou superior.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="chamada">
+  <div class="conteiner">
+    <img src="img/icone.png" alt="">
+    <h2>Comece a organizar seu mês hoje</h2>
+    <p>Baixe o FluxAí e tenha a previsão do seu dinheiro na palma da mão.</p>
+    <div class="acoes">
+      <a class="botao botao-principal link-apk" href="download/FluxAi.apk" download>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
+        <span>Baixar para Android<small class="rotulo-versao">Versão mais recente</small></span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="conteiner">
+    <span>© <span id="ano">2026</span> FluxAí · Hudson Santos Rodrigues. Todos os direitos reservados.</span>
+    <span>Gestão financeira inteligente para Android</span>
+  </div>
+</footer>
+
+<script>
+  document.getElementById("ano").textContent = new Date().getFullYear();
+  // Versão publicada (o mesmo arquivo que o app consulta para se atualizar)
+  fetch("versao.json", { cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (v) {
+      if (!v) return;
+      document.querySelectorAll(".rotulo-versao").forEach(function (el) { el.textContent = "Versão " + v.nome + " · " + String(v.tamanhoMb).replace(".", ",") + " MB"; });
+      document.querySelectorAll(".link-apk").forEach(function (el) { el.href = v.apk + "?v=" + v.versao; });
+      var d = v.data ? v.data.split("-").reverse().join("/") : "";
+      if (d) document.querySelector(".rotulo-tamanho").textContent = "APK oficial assinado · atualizado em " + d;
+    })
+    .catch(function () {});
+</script>
+</body>
+</html>
