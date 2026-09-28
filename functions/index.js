@@ -138,3 +138,34 @@ exports.excluirConta = onCall(
   }
 );
 
+
+// Traz para a lista de acesso as contas criadas antes da ativação (ficam pendentes).
+// Só o administrador chama, pela tela Usuários do app.
+exports.importarContas = onCall(
+  { region: "southamerica-east1", timeoutSeconds: 120, memory: "256MiB" },
+  async (request) => {
+    const auth = request.auth;
+    if (!auth || auth.token.email !== EMAIL_ADMIN || auth.token.email_verified !== true) {
+      throw new HttpsError("permission-denied", "Só o administrador pode importar contas.");
+    }
+    const db = getFirestore();
+    let novas = 0;
+    let pagina;
+    do {
+      const lista = await getAuth().listUsers(1000, pagina);
+      for (const u of lista.users) {
+        const ref = db.collection("acesso").doc(u.uid);
+        if ((await ref.get()).exists) continue;
+        await ref.set({
+          nome: u.displayName || "",
+          email: u.email || "",
+          ativo: u.email === EMAIL_ADMIN,
+          criadoEm: new Date(u.metadata.creationTime),
+        });
+        novas++;
+      }
+      pagina = lista.pageToken;
+    } while (pagina);
+    return { novas };
+  }
+);

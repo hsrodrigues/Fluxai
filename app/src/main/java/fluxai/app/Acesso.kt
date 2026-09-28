@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -14,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -27,6 +29,10 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.firestore
+import com.google.firebase.functions.functions
+import android.widget.Toast
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -126,6 +132,25 @@ fun AdminUsuariosScreen(onLogout: () -> Unit) {
     var contas by remember { mutableStateOf<List<ContaAcesso>?>(null) }
     var erro by remember { mutableStateOf<String?>(null) }
     var recarregar by remember { mutableIntStateOf(0) }
+    var importando by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val escopo = rememberCoroutineScope()
+
+    // Contas criadas antes da ativação só aparecem aqui depois de importadas (entram pendentes)
+    fun importarContas() {
+        importando = true
+        escopo.launch {
+            val msg = try {
+                val dados = Firebase.functions("southamerica-east1").getHttpsCallable("importarContas").call().await().getData() as? Map<*, *>
+                val novas = (dados?.get("novas") as? Number)?.toInt() ?: 0
+                if (novas == 0) "Nenhuma conta nova para importar." else "$novas conta(s) importada(s) como pendentes."
+            } catch (e: Exception) {
+                "Falha ao importar: ${e.message}"
+            }
+            importando = false
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
 
     DisposableEffect(recarregar) {
         val registro = Firebase.firestore.collection("acesso").orderBy("criadoEm", Query.Direction.DESCENDING)
@@ -141,13 +166,19 @@ fun AdminUsuariosScreen(onLogout: () -> Unit) {
 
     TelaComMenu(
         titulo = "Usuários", rota = "admin_usuarios", onLogout = onLogout,
-        acoes = { IconButton(onClick = { recarregar++ }) { Icon(Icons.Default.Refresh, "Atualizar", tint = c.texto) } }
+        acoes = {
+            IconButton(onClick = { importarContas() }, enabled = !importando) {
+                if (importando) CircularProgressIndicator(Modifier.size(20.dp), color = c.destaque, strokeWidth = 2.dp)
+                else Icon(Icons.Default.GroupAdd, "Importar contas existentes", tint = c.texto)
+            }
+            IconButton(onClick = { recarregar++ }) { Icon(Icons.Default.Refresh, "Atualizar", tint = c.texto) }
+        }
     ) { padding ->
         val lista = contas
         when {
             erro != null -> Text("Erro ao carregar: $erro", color = c.textoFraco, modifier = Modifier.padding(padding).padding(24.dp))
             lista == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.destaque) }
-            lista.isEmpty() -> Text("Nenhum cadastro ainda.", color = c.textoFraco, modifier = Modifier.padding(padding).padding(24.dp))
+            lista.isEmpty() -> Text("Nenhum cadastro ainda. Toque no ícone de pessoas no topo para importar as contas existentes.", color = c.textoFraco, modifier = Modifier.padding(padding).padding(24.dp))
             else -> {
                 val formato = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.forLanguageTag("pt-BR")) }
                 val pendentes = lista.count { !it.ativo }
