@@ -57,6 +57,7 @@ object Mercado {
 
     const val SERIE_CDI = 12
     const val SERIE_SELIC = 11
+    const val SERIE_POUPANCA = 195
 
     // A API do Banco Central às vezes devolve uma página de erro no lugar do JSON: tenta até 3 vezes
     fun lerJsonBcb(url: String): JSONArray {
@@ -178,15 +179,28 @@ object Mercado {
         return fator
     }
 
-    // Poupança: 0,5% ao mês com Selic acima de 8,5%, senão 70% da Selic; rende só no aniversário (TR ignorada)
+    // Poupança: rentabilidade oficial de cada aniversário (série 195 do Banco Central, já com a TR).
+    // Rende só no aniversário; depósitos nos dias 29, 30 e 31 fazem aniversário no dia 1º do mês seguinte.
+    // Aniversário ainda sem índice publicado usa a regra: 0,5% ao mês com Selic acima de 8,5%, senão 70% da Selic.
     private suspend fun fatorPoupanca(de: String, ate: String): Double {
-        val selic = runCatching { selicMetaAtual() }.getOrDefault(10.0)
-        val mensal = if (selic > 8.5) 0.005 else (1 + selic * 0.7 / 100).pow(1.0 / 12) - 1
         val (a1, m1, d1) = de.split("-").map { it.toInt() }
         val (a2, m2, d2) = ate.split("-").map { it.toInt() }
         var meses = (a2 - a1) * 12 + (m2 - m1)
         if (d2 < d1) meses--
-        return (1 + mensal).pow(meses.coerceAtLeast(0))
+        if (meses <= 0) return 1.0
+        val oficial = runCatching { serieDiaria(SERIE_POUPANCA, de).toMap() }.getOrDefault(emptyMap())
+        val estimada = runCatching { selicMetaAtual() }.getOrDefault(10.0).let { selic -> if (selic > 8.5) 0.5 else ((1 + selic * 0.7 / 100).pow(1.0 / 12) - 1) * 100 }
+        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { clear(); set(a1, m1 - 1, minOf(d1, 28)) }
+        var fator = 1.0
+        repeat(meses) {
+            val aniversario = if (d1 > 28) {
+                val c = (cal.clone() as Calendar).apply { add(Calendar.MONTH, 1); set(Calendar.DAY_OF_MONTH, 1) }
+                "%04d-%02d-01".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1)
+            } else "%04d-%02d-%02d".format(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, d1)
+            fator *= 1 + (oficial[aniversario] ?: estimada) / 100
+            cal.add(Calendar.MONTH, 1)
+        }
+        return fator
     }
 
     // Fechamento de cada mês ("aaaa-mm" -> preço) dos últimos 12 meses, para o gráfico de evolução

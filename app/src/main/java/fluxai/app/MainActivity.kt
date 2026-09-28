@@ -534,6 +534,7 @@ class MainActivity : FragmentActivity() {
             composable("contas") { ContasBancariasScreen(onLogout = sairDoApp) }
             composable("admin_usuarios") { AdminUsuariosScreen(onLogout = sairDoApp) }
             composable("investimentos") { InvestimentosScreen(onLogout = sairDoApp) }
+            composable("juros") { JurosBancosScreen(onLogout = sairDoApp) }
         }
         }
     }

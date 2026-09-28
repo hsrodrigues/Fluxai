@@ -119,10 +119,11 @@ data class InvestimentoCalculado(
     val rendimentoPct get() = if (investido > 0) rendimento / investido * 100 else 0.0
 }
 
-// Um ponto do gráfico: patrimônio e valor aplicado no fim de um mês (o último ponto é hoje)
-data class PontoEvolucao(val mes: String, val patrimonio: Double, val aplicado: Double) {
+// Um ponto do gráfico: patrimônio e valor aplicado no fim de um mês. O primeiro ponto pode ser o dia
+// da primeira aplicação (rotuloFixo "dd/mm") e o último é hoje.
+data class PontoEvolucao(val mes: String, val patrimonio: Double, val aplicado: Double, val rotuloFixo: String? = null) {
     val hoje get() = mes.endsWith("*")
-    val rotulo get() = if (hoje) "hoje" else rotuloMes(mes)
+    val rotulo get() = rotuloFixo ?: if (hoje) "hoje" else rotuloMes(mes)
 }
 
 private val MesesCurtos = listOf("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
@@ -132,6 +133,7 @@ data class EstadoInvestimentos(
     val carregando: Boolean = true,
     val itens: List<InvestimentoCalculado> = emptyList(),
     val evolucao: List<PontoEvolucao> = emptyList(),
+    val focus: List<ExpectativaFocus> = emptyList(),
     val cdiAnual: Double? = null,
     val erroMercado: Boolean = false
 ) {
@@ -219,23 +221,34 @@ suspend fun evolucaoCarteira(lista: List<Investimento>, atual: EstadoInvestiment
     }
     val historico = lista.filter { it.variavel && it.ticker.isNotBlank() }.map { it.ticker to (it.tipo == "Cripto") }
         .takeIf { it.isNotEmpty() }?.let { Mercado.historicoPrecos(it) } ?: emptyMap()
-    val pontos = fins.reversed().map { fim ->
+    // Patrimônio e aplicado numa data (no dia da primeira aplicação, ações pelo preço pago)
+    suspend fun valoresEm(data: String, usarFechamentoDoMes: Boolean): Pair<Double, Double> {
         var patrimonio = 0.0; var aplicado = 0.0
         lista.forEach { inv ->
-            val movs = inv.movimentos.filter { it.data <= fim }
+            val movs = inv.movimentos.filter { it.data <= data }
             if (movs.isEmpty()) return@forEach
             if (inv.variavel) {
                 val (qtd, pm) = posicaoVariavel(movs)
-                patrimonio += qtd * (historico[inv.ticker]?.get(fim.substring(0, 7)) ?: pm)
+                val preco = if (usarFechamentoDoMes) historico[inv.ticker]?.get(data.substring(0, 7)) else null
+                patrimonio += qtd * (preco ?: pm)
                 aplicado += qtd * pm
             } else {
-                movs.forEach { m -> patrimonio += m.valor * runCatching { Mercado.fatorRendaFixa(inv.indexadorEfetivo, inv.taxa, m.data, fim) }.getOrDefault(1.0) }
+                movs.forEach { m -> patrimonio += m.valor * runCatching { Mercado.fatorRendaFixa(inv.indexadorEfetivo, inv.taxa, m.data, data) }.getOrDefault(1.0) }
                 aplicado += movs.sumOf { it.custo ?: it.valor }
             }
         }
-        PontoEvolucao(fim.substring(0, 7), patrimonio.coerceAtLeast(0.0), aplicado.coerceAtLeast(0.0))
+        return patrimonio.coerceAtLeast(0.0) to aplicado.coerceAtLeast(0.0)
     }
-    return pontos + PontoEvolucao(hoje.substring(0, 7) + "*", atual.total, atual.investido)
+    val pontos = fins.reversed().map { fim ->
+        val (patrimonio, aplicado) = valoresEm(fim, usarFechamentoDoMes = true)
+        PontoEvolucao(fim.substring(0, 7), patrimonio, aplicado)
+    }
+    // Começa no dia da primeira aplicação quando ele não coincide com um fim de mês já no gráfico
+    val inicio = if (primeiro < hoje && pontos.none { it.mes == primeiro.substring(0, 7) && fins.contains(primeiro) }) {
+        val (patrimonio, aplicado) = valoresEm(primeiro, usarFechamentoDoMes = false)
+        listOf(PontoEvolucao(primeiro.substring(0, 7) + "i", patrimonio, aplicado, rotuloFixo = isoParaBr(primeiro).substring(0, 5)))
+    } else emptyList()
+    return inicio + pontos + PontoEvolucao(hoje.substring(0, 7) + "*", atual.total, atual.investido)
 }
 
 fun lerInvestimento(d: com.google.firebase.firestore.DocumentSnapshot): Investimento? = runCatching {
@@ -276,6 +289,7 @@ class InvestimentosViewModel : ViewModel() {
             recalcular()
         }
         viewModelScope.launch { _estado.value = _estado.value.copy(cdiAnual = Mercado.cdiAnualAtual()) }
+        viewModelScope.launch { BancoCentral.expectativas()?.let { _estado.value = _estado.value.copy(focus = it) } }
     }
 
     fun recalcular() {
@@ -362,6 +376,9 @@ fun resumoCarteiraParaIA(estado: EstadoInvestimentos, rs: (Double) -> String): S
         appendLine("- Patrimônio investido: ${rs(estado.total)} (aplicado: ${rs(estado.investido)}, rendimento: ${rs(estado.rendimento)})")
         appendLine("- Rendeu neste mês: ${rs(estado.rendeuNoMes)}")
         append(porTipo)
+        if (estado.focus.isNotEmpty()) {
+            appendLine(); append("- Expectativa do mercado (Focus): " + estado.focus.joinToString("; ") { "${it.indicador} ${it.ano} ${String.format(Locale("pt", "BR"), "%.2f", it.mediana)}%" })
+        }
     }
 }
 
@@ -415,6 +432,14 @@ fun InvestimentosScreen(onLogout: () -> Unit) {
             item { ResumoCarteira(estado, c) }
 
             if (estado.evolucao.size >= 2) item { CardEvolucaoPatrimonio(estado.evolucao, c) }
+            else if (!estado.carregando && estado.itens.isNotEmpty()) item {
+                Text(
+                    "O gráfico da evolução do patrimônio aparece a partir de amanhã, quando houver mais de um dia de histórico.",
+                    fontSize = 12.sp, color = c.textoFraco, modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+
+            if (estado.focus.isNotEmpty()) item { CardExpectativasFocus(estado.focus, c) }
 
             if (estado.itens.size > 1) item { DistribuicaoCarteira(estado, c) }
 
@@ -919,6 +944,31 @@ private fun DialogoHistorico(inv: Investimento, c: CoresTela, onFechar: () -> Un
             confirmButton = { Button(onClick = { onRemover(m); paraRemover = null; onFechar() }, colors = ButtonDefaults.buttonColors(containerColor = Vermelho)) { Text("Remover") } },
             dismissButton = { TextButton(onClick = { paraRemover = null }) { Text("Cancelar", color = c.textoFraco) } }
         )
+    }
+}
+
+// O que o mercado espera (Boletim Focus do Banco Central): IPCA e Selic de fim de ano
+@Composable
+private fun CardExpectativasFocus(focus: List<ExpectativaFocus>, c: CoresTela) {
+    Surface(shape = RoundedCornerShape(20.dp), color = c.superficie, border = BorderStroke(1.dp, c.divisor), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp)) {
+            Text("O que o mercado espera", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = c.texto)
+            Spacer(Modifier.height(10.dp))
+            listOf("IPCA" to "Inflação (IPCA) no ano", "Selic" to "Selic no fim do ano").forEach { (indicador, titulo) ->
+                val valores = focus.filter { it.indicador == indicador }
+                if (valores.isEmpty()) return@forEach
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(titulo, fontSize = 13.sp, color = c.texto, modifier = Modifier.weight(1f))
+                    valores.forEach { v ->
+                        Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 16.dp)) {
+                            Text("${v.ano}", fontSize = 11.sp, color = c.textoFraco)
+                            Text(String.format(Locale("pt", "BR"), "%.2f%%", v.mediana), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = c.texto)
+                        }
+                    }
+                }
+            }
+            Text("Boletim Focus de ${isoParaBr(focus.first().dataPesquisa)} · mediana das projeções do mercado (Banco Central)", fontSize = 11.sp, color = c.textoFraco, modifier = Modifier.padding(top = 6.dp))
+        }
     }
 }
 

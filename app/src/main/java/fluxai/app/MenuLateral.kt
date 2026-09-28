@@ -169,6 +169,7 @@ fun MenuLateral(
             MenuItem("Cartões", Icons.Default.CreditCard, rotaAtual == "cartoes", colorAccent, colorTextSecondary) { abrir(onAbrirCartoes, "cartoes") }
             MenuItem("Cofre / Metas", Icons.Default.Savings, rotaAtual == "caixinhas", colorAccent, colorTextSecondary) { abrir(onAbrirCaixinhas, "caixinhas") }
             MenuItem("Investimentos", Icons.AutoMirrored.Filled.TrendingUp, rotaAtual == "investimentos", colorAccent, colorTextSecondary) { abrir(null, "investimentos") }
+            MenuItem("Juros dos bancos", Icons.Default.Percent, rotaAtual == "juros", colorAccent, colorTextSecondary) { abrir(null, "juros") }
             MenuItem("Hub de Assinaturas", Icons.Default.Autorenew, rotaAtual == "assinaturas", colorAccent, colorTextSecondary) { abrir(onAbrirAssinaturas, "assinaturas") }
             MenuItem("Planos e Celular", Icons.Default.SettingsCell, rotaAtual == "celular", colorAccent, colorTextSecondary) { abrir(onAbrirCelular, "celular") }
             MenuItem("Ativos & TCO", Icons.Default.Build, rotaAtual == "manutencao", colorAccent, colorTextSecondary) { abrir(onAbrirManutencao, "manutencao") }

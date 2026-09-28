@@ -1050,6 +1050,30 @@ fun DashboardScreen(
                             OutlinedTextField(value = eDiaVencimento, onValueChange = { if(it.length <= 2) eDiaVencimento = it }, label = { Text("Vence dia") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f), shape = FormatoCampo, colors = coresCampo, singleLine = true)
                         }
                         OutlinedTextField(value = eValorParcela, onValueChange = { eValorParcela = it }, label = { Text("Valor de cada parcela") }, prefix = { Text("R$ ") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), colors = coresCampo, shape = FormatoCampo, singleLine = true)
+
+                        // Juros embutidos nas parcelas, comparados com a média do crédito pessoal (Banco Central)
+                        val taxaEmprestimo = taxaMensalEmprestimo(eValorRecebido.paraValor() ?: 0.0, eValorParcela.paraValor() ?: 0.0, eQtdParcelas.toIntOrNull() ?: 0)
+                        var mediaCreditoPessoal by remember { mutableStateOf<Double?>(null) }
+                        LaunchedEffect(Unit) { mediaCreditoPessoal = BancoCentral.jurosMedio(modalidadeCredito("Crédito pessoal"))?.second }
+                        if (taxaEmprestimo != null) {
+                            val navegarJuros = LocalNavegar.current
+                            Surface(shape = RoundedCornerShape(14.dp), color = colorAccent.copy(alpha = 0.08f), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(
+                                        "Juros deste empréstimo: ${String.format(Locale("pt", "BR"), "%.2f", taxaEmprestimo)}% ao mês (${String.format(Locale("pt", "BR"), "%.1f", mensalParaAnual(taxaEmprestimo))}% ao ano)",
+                                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colorTextPrimary
+                                    )
+                                    mediaCreditoPessoal?.let {
+                                        Text("Média do crédito pessoal no mercado: ${String.format(Locale("pt", "BR"), "%.2f", anualParaMensal(it))}% ao mês (Banco Central)", fontSize = 12.sp, color = colorTextSecondary)
+                                    }
+                                    TextButton(onClick = {
+                                        pedidoComparacaoJuros = "Crédito pessoal" to taxaEmprestimo
+                                        mostrarDialogEmprestimo = false
+                                        navegarJuros("juros")
+                                    }, contentPadding = PaddingValues(0.dp)) { Text("Comparar com os bancos", fontSize = 12.sp, color = colorAccent) }
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
@@ -1218,6 +1242,15 @@ fun DashboardScreen(
                             colors = coresCampo
                         )
                         Text("Se você pagar um valor menor, o restante será lançado como uma nova despesa pendente no mês seguinte.", fontSize = 12.sp, color = colorTextSecondary, lineHeight = 16.sp)
+                        // Pagar menos que o total leva o saldo ao rotativo: mostra quanto isso custa em média
+                        var jurosRotativo by remember { mutableStateOf<Double?>(null) }
+                        LaunchedEffect(Unit) { jurosRotativo = BancoCentral.jurosMedio(modalidadeCredito("Cartão rotativo"))?.second }
+                        jurosRotativo?.let { aa ->
+                            Text(
+                                "Atenção: o que ficar sem pagar costuma cair no rotativo do cartão, que cobra em média ${String.format(Locale("pt", "BR"), "%.1f", anualParaMensal(aa))}% ao mês (${String.format(Locale("pt", "BR"), "%.0f", aa)}% ao ano), segundo o Banco Central.",
+                                fontSize = 12.sp, color = Color(0xFFE65100), lineHeight = 16.sp
+                            )
+                        }
                     }
                 },
                 confirmButton = {
@@ -1668,6 +1701,10 @@ fun CotacoesWidget() {
         }
     }
 
+    // Dólar oficial do Banco Central (PTAX), mostrado abaixo das cotações de mercado
+    var ptax by remember { mutableStateOf<Ptax?>(null) }
+    LaunchedEffect(Unit) { ptax = BancoCentral.dolarPtax() }
+
     if (!carregando && cotacoes.isNotEmpty()) {
         Surface(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
@@ -1722,6 +1759,13 @@ fun CotacoesWidget() {
                             }
                         }
                     }
+                }
+                ptax?.let { p ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Dólar PTAX (oficial do Banco Central): R$ ${String.format(Locale("pt", "BR"), "%.4f", p.venda)} · ${isoParaBr(p.dataHora.take(10))}",
+                        fontSize = 11.sp, color = Color(0xFF9CA3AF)
+                    )
                 }
             }
         }

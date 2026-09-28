@@ -78,10 +78,55 @@ class InvestimentosTest {
     }
 
     @Test
-    fun poupancaRendeSoNoAniversario() = runBlocking {
-        // Selic acima de 8,5%: 0,5% ao mês. De 10/01 a 09/09 são 7 aniversários completos.
-        assertEquals(1.005.pow(7), Mercado.fatorRendaFixa(INDEXADOR_POUPANCA, 0.0, "2026-01-10", "2026-09-09"), 1e-9)
-        assertEquals(1.005.pow(8), Mercado.fatorRendaFixa(INDEXADOR_POUPANCA, 0.0, "2026-01-10", "2026-09-10"), 1e-9)
+    fun poupancaUsaARentabilidadeOficialDeCadaAniversario() = runBlocking {
+        // Depósito em 10/01: multiplica os índices oficiais (série 195) de 10/01, 10/02, ... até o último aniversário
+        val serie = Mercado.lerJsonBcb("https://api.bcb.gov.br/dados/serie/bcdata.sgs.195/dados?formato=json&dataInicial=10/01/2026&dataFinal=10/08/2026")
+        val porData = (0 until serie.length()).map { serie.getJSONObject(it) }.associate { brParaIso(it.getString("data")) to it.getString("valor").toDouble() }
+        val esperado = (1..7).fold(1.0) { f, m -> f * (1 + porData.getValue("2026-%02d-10".format(m)) / 100) }
+        assertEquals(esperado, Mercado.fatorRendaFixa(INDEXADOR_POUPANCA, 0.0, "2026-01-10", "2026-08-10"), 1e-9)
+        // Um dia antes do aniversário ainda não rendeu o 7º mês
+        val seis = (1..6).fold(1.0) { f, m -> f * (1 + porData.getValue("2026-%02d-10".format(m)) / 100) }
+        assertEquals(seis, Mercado.fatorRendaFixa(INDEXADOR_POUPANCA, 0.0, "2026-01-10", "2026-08-09"), 1e-9)
+    }
+
+    @Test
+    fun jurosDeEmprestimoEConversaoDeTaxas() {
+        // R$ 1.000 em 12 parcelas de R$ 100 -> cerca de 2,92% ao mês
+        assertEquals(2.9229, taxaMensalEmprestimo(1000.0, 100.0, 12)!!, 0.001)
+        assertNull(taxaMensalEmprestimo(1000.0, 80.0, 12)) // parcelas somam menos que o recebido
+        assertEquals(12.6825, mensalParaAnual(1.0), 0.001)
+        assertEquals(1.0, anualParaMensal(mensalParaAnual(1.0)), 1e-9)
+        assertEquals("Santander (Brasil)", nomeBanco("BCO SANTANDER (BRASIL) S.A."))
+        assertEquals("Caixa Economica Federal", nomeBanco("CAIXA ECONOMICA FEDERAL"))
+    }
+
+    @Test
+    fun dadosAbertosDoBancoCentralRespondem() = runBlocking {
+        val focus = BancoCentral.expectativas()!!
+        assert(focus.any { it.indicador == "IPCA" } && focus.any { it.indicador == "Selic" })
+        val rotativo = BancoCentral.jurosMedio(modalidadeCredito("Cartão rotativo"))!!
+        assert(rotativo.second > 50)
+        val ranking = BancoCentral.ranking(modalidadeCredito("Crédito pessoal"))!!
+        assert(ranking.bancos.size > 10)
+        assertEquals(1, ranking.bancos.first().posicao)
+        assert(ranking.bancos.zipWithNext().all { (a, b) -> a.taxaMes <= b.taxaMes + 1e-9 })
+        val ptax = BancoCentral.dolarPtax()!!
+        assert(ptax.venda in 3.0..10.0)
+    }
+
+    @Test
+    fun evolucaoComecaNaDataDaPrimeiraAplicacao() = runBlocking {
+        // Aplicação feita neste mês: o gráfico começa no dia da aplicação e termina hoje
+        val dia = inicioDoMesIso()
+        val inv = Investimento(id = "y", nome = "CDB", tipo = "Renda fixa", indexador = INDEXADOR_CDI, taxa = 100.0,
+            movimentos = listOf(MovimentoInvestimento("a", dia, valor = 500.0)))
+        val atual = EstadoInvestimentos(carregando = false, itens = calcularCarteira(listOf(inv)).first)
+        val pontos = evolucaoCarteira(listOf(inv), atual)
+        if (dia < hojeIso()) {
+            assertEquals(2, pontos.size)
+            assertEquals(isoParaBr(dia).substring(0, 5), pontos.first().rotulo)
+            assertEquals(500.0, pontos.first().patrimonio, 1e-9)
+        }
     }
 
     @Test
@@ -90,10 +135,11 @@ class InvestimentosTest {
             movimentos = listOf(MovimentoInvestimento("a", "2026-01-02", valor = 1000.0)))
         val atual = EstadoInvestimentos(carregando = false, itens = calcularCarteira(listOf(inv)).first)
         val pontos = evolucaoCarteira(listOf(inv), atual)
-        // Começa no mês do primeiro aporte e termina em "hoje"
-        assertEquals("2026-01", pontos.first().mes)
+        // Começa no dia da primeira aplicação, segue pelos fins de mês e termina em "hoje"
+        assertEquals("02/01", pontos.first().rotulo)
+        assertEquals(1000.0, pontos.first().patrimonio, 1e-9)
+        assertEquals("jan/26", pontos[1].rotulo)
         assert(pontos.last().hoje)
-        assertEquals("jan/26", pontos.first().rotulo)
         // Aplicado constante; patrimônio só cresce e bate com o fator do CDI no fim de cada mês
         pontos.forEach { assertEquals(1000.0, it.aplicado, 1e-9) }
         pontos.zipWithNext().forEach { (a, b) -> assert(b.patrimonio >= a.patrimonio) }
