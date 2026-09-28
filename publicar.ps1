@@ -36,13 +36,16 @@ if (-not $SoSite) {
     if (-not $run) { Write-Host "Workflow da tag $tag não encontrado." -ForegroundColor Red; exit 1 }
     gh run watch $run --exit-status
     if ($LASTEXITCODE -ne 0) { Write-Host "Build falhou: nada foi publicado no site." -ForegroundColor Red; exit 1 }
+} else {
+    $run = gh run list --workflow release.yml --branch $tag -L 1 --json databaseId -q ".[0].databaseId"
+    if (-not $run) { Write-Host "Build da tag $tag não encontrado." -ForegroundColor Red; exit 1 }
 }
 
-# Baixa o APK do Release e publica no site junto com o versao.json
+# Baixa o APK do build (artefato) e publica no site junto com o versao.json
 $pasta = "site/download"
 New-Item -ItemType Directory -Force $pasta | Out-Null
 Remove-Item "$pasta/*.apk" -ErrorAction SilentlyContinue
-gh release download $tag --pattern "FluxAi.apk" --dir $pasta --clobber
+gh run download $run --name FluxAi-apk --dir $pasta
 $apk = Get-Item "$pasta/FluxAi.apk"
 # Versão mínima aceita pelo app (abaixo dela, atualização obrigatória)
 $minima = $Versao - $VERSOES_TOLERADAS

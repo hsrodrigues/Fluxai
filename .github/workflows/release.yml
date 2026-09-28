@@ -1,5 +1,6 @@
-# Publica o APK no GitHub Release sempre que uma tag v1.0.N é enviada.
-# O publicar.ps1 copia o APK para o site no Firebase Hosting, de onde o app se atualiza.
+# Compila e assina o APK sempre que uma tag v1.0.N é enviada.
+# O APK fica como artefato do build (não há Release público); o publicar.ps1 baixa
+# e publica no site no Firebase Hosting, de onde o app se atualiza.
 name: Publicar APK
 
 on:
@@ -7,7 +8,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
@@ -56,8 +57,8 @@ jobs:
           grep -qi "SHA-256 digest: aeb666444a8be9c87806375bfd63bc5cb16f508bf2364fea0174431c16b42e97" assinatura.txt \
             || { echo "APK assinado com a chave errada: release cancelada."; exit 1; }
 
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v5
         with:
-          name: FluxAí ${{ github.ref_name }}
-          files: FluxAi.apk
-          make_latest: true
+          name: FluxAi-apk
+          path: FluxAi.apk
+          retention-days: 30
