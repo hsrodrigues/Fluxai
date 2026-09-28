@@ -124,7 +124,7 @@ firebase deploy --only functions
 
 1. Faça o commit das alterações.
 2. Rode `.\publicar.ps1` — ele cria a tag `v1.0.N` e envia ao GitHub.
-3. O GitHub Actions compila o APK e cria o Release (repositório privado).
+3. O GitHub Actions compila o APK e cria o [Release](https://github.com/hsrodrigues/Fluxai/releases/latest).
 4. O script espera o build, baixa o APK e publica no site [fluxai-adbdf.web.app](https://fluxai-adbdf.web.app) (Firebase Hosting, pasta `site/`) junto com o `versao.json`; o app consulta esse arquivo, avisa da nova versão e instala a atualização.
 
 ## 🔐 Acesso
