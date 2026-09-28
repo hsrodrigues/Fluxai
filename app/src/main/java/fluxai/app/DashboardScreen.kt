@@ -127,7 +127,6 @@ fun DashboardScreen(
 
     var despesasRaw by remember { mutableStateOf<List<Despesa>>(emptyList()) }
 
-    var updateUrl by remember { mutableStateOf("") }
     var vServidorState by remember { mutableLongStateOf(0L) }
     var mostrarUpdateDialog by remember { mutableStateOf(false) }
     var mostrarDialogCalendario by remember { mutableStateOf(false) }
@@ -216,7 +215,7 @@ fun DashboardScreen(
         mesNome = SimpleDateFormat("MMMM yyyy", localeBR).format(calendar.time).replaceFirstChar { it.uppercase() }
     }
 
-    // Nova versão: consulta o último GitHub Release ao abrir e sempre que o app volta para a tela,
+    // Nova versão: consulta a última versão publicada ao abrir e sempre que o app volta para a tela,
     // no máximo a cada 2 min (o Android mantém o app vivo em segundo plano, então "reabrir" nem sempre recria a tela)
     val ciclo = androidx.lifecycle.compose.LocalLifecycleOwner.current
     var retomadas by remember { mutableIntStateOf(0) }
@@ -231,12 +230,11 @@ fun DashboardScreen(
         if (System.currentTimeMillis() - atualizacaoVerificadaEm < INTERVALO_VERIFICAR_ATUALIZACAO_MS) return@LaunchedEffect
         // Ao abrir, o ON_RESUME logo em seguida reinicia este efeito e cancela a consulta em andamento:
         // por isso o horário só é marcado depois da resposta (senão a verificação nunca terminava)
-        val remota = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { buscarUltimaVersaoGithub() }
+        val versaoRemota = buscarUltimaVersao()
             ?: return@LaunchedEffect // falhou a rede: tenta de novo na próxima volta
         atualizacaoVerificadaEm = System.currentTimeMillis()
-        if (remota.versao > BuildConfig.VERSION_CODE) {
-            vServidorState = remota.versao
-            updateUrl = remota.urlApk
+        if (versaoRemota > BuildConfig.VERSION_CODE) {
+            vServidorState = versaoRemota
             mostrarUpdateDialog = true
         }
     }
@@ -1389,7 +1387,14 @@ fun DashboardScreen(
 
                             Spacer(Modifier.height(20.dp))
                             Button(
-                                onClick = { baixarEInstalarApk(context, updateUrl, vServidorState); mostrarUpdateDialog = false },
+                                onClick = {
+                                    mostrarUpdateDialog = false
+                                    coroutineScope.launch {
+                                        val link = buscarLinkAtualizacao()
+                                        if (link != null) baixarEInstalarApk(context, link, vServidorState)
+                                        else Toast.makeText(context, "Não foi possível baixar a atualização. Tente de novo.", Toast.LENGTH_LONG).show()
+                                    }
+                                },
                                 modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = colorAccent)
                             ) {

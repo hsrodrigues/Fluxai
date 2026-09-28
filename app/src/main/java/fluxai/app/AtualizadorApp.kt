@@ -11,31 +11,29 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import com.google.firebase.Firebase
+import com.google.firebase.functions.functions
+import kotlinx.coroutines.tasks.await
 import java.io.File
 
-// Última versão publicada no GitHub Release (tag v1.0.N + APK anexado)
-data class VersaoRemota(val versao: Long, val urlApk: String)
+// Última versão publicada (GitHub Release privado, entregue pela Cloud Function "ultimaVersao" só para contas ativas)
+private val funcaoUltimaVersao get() = Firebase.functions("southamerica-east1").getHttpsCallable("ultimaVersao")
 
-private const val URL_ULTIMO_RELEASE = "https://api.github.com/repos/hsrodrigues/Fluxai/releases/latest"
-
-// Chamar fora da thread principal. Retorna null se não houver release ou der erro de rede.
-fun buscarUltimaVersaoGithub(): VersaoRemota? = try {
-    val conn = java.net.URL(URL_ULTIMO_RELEASE).openConnection() as java.net.HttpURLConnection
-    conn.setRequestProperty("Accept", "application/vnd.github+json")
-    conn.setRequestProperty("User-Agent", "FluxAi-Android")
-    conn.connectTimeout = 8000
-    conn.readTimeout = 8000
-    if (conn.responseCode != 200) null else {
-        val json = org.json.JSONObject(conn.inputStream.bufferedReader().readText())
-        val versao = json.getString("tag_name").substringAfterLast('.').filter { it.isDigit() }.toLongOrNull()
-        val assets = json.getJSONArray("assets")
-        val urlApk = (0 until assets.length()).map { assets.getJSONObject(it) }
-            .firstOrNull { it.getString("name").endsWith(".apk") }
-            ?.getString("browser_download_url")
-        if (versao != null && urlApk != null) VersaoRemota(versao, urlApk) else null
-    }
+// Retorna null se não houver release, a conta não estiver ativa ou der erro de rede.
+suspend fun buscarUltimaVersao(): Long? = try {
+    val dados = funcaoUltimaVersao.call(mapOf("link" to false)).await().getData() as? Map<*, *>
+    (dados?.get("versao") as? Number)?.toLong()
 } catch (e: Exception) {
-    android.util.Log.e("FLUXAI_UPDATE", "Erro ao consultar GitHub: ${e.message}")
+    android.util.Log.e("FLUXAI_UPDATE", "Erro ao consultar atualização: ${e.message}")
+    null
+}
+
+// O link do APK é temporário (poucos minutos): pedido só na hora de baixar
+suspend fun buscarLinkAtualizacao(): String? = try {
+    val dados = funcaoUltimaVersao.call(mapOf("link" to true)).await().getData() as? Map<*, *>
+    dados?.get("urlApk") as? String
+} catch (e: Exception) {
+    android.util.Log.e("FLUXAI_UPDATE", "Erro ao gerar link da atualização: ${e.message}")
     null
 }
 

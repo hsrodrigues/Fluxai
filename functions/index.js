@@ -19,6 +19,19 @@ const PERFIS = {
   chat: { chave: GROQ_API_KEY_CONSULTOR, modelo: "openai/gpt-oss-20b", temperatura: 0.6, maxTokens: 900, reasoning: "low", maxMensagens: 10 },
 };
 
+// Único administrador: sempre ativo e o único que libera outras contas (mesma regra do firestore.rules)
+const EMAIL_ADMIN = "hsrodrigues01@gmail.com";
+
+// Conta liberada pelo administrador; cadastro novo fica pendente até ser ativado
+async function exigirContaAtiva(auth) {
+  if (!auth) throw new HttpsError("unauthenticated", "Faça login para continuar.");
+  if (auth.token.email === EMAIL_ADMIN && auth.token.email_verified === true) return;
+  const doc = await getFirestore().collection("acesso").doc(auth.uid).get();
+  if (!doc.exists || doc.get("ativo") !== true) {
+    throw new HttpsError("permission-denied", "Sua conta ainda não foi ativada.");
+  }
+}
+
 const LIMITE_DIARIO_POR_USUARIO = 60;
 const MAX_CARACTERES = 20000;
 
@@ -40,6 +53,7 @@ exports.groqChat = onCall(
   { region: "southamerica-east1", secrets: [GROQ_API_KEY_OCR, GROQ_API_KEY_CONSULTOR], timeoutSeconds: 60, memory: "256MiB" },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Faça login para usar a IA.");
+    await exigirContaAtiva(request.auth);
 
     const { tipo, mensagens } = request.data || {};
     const perfil = PERFIS[tipo];
@@ -104,6 +118,7 @@ exports.excluirConta = onCall(
     }
 
     await db.recursiveDelete(db.collection("usuarios").doc(uid));
+    await db.collection("acesso").doc(uid).delete();
 
     // Fotos de comprovantes guardadas no Storage
     await getStorage().bucket().deleteFiles({ prefix: `usuarios/${uid}/` }).catch((e) => console.error("Falha ao apagar comprovantes", e));
@@ -120,5 +135,49 @@ exports.excluirConta = onCall(
 
     await getAuth().deleteUser(uid);
     return { ok: true };
+  }
+);
+
+// Atualização do app: o repositório é privado, então o APK sai do GitHub Release por aqui,
+// só para contas ativas. O token (somente leitura) fica no Secret Manager, nunca no APK.
+const GH_RELEASES_TOKEN = defineSecret("GH_RELEASES_TOKEN");
+const REPO = "hsrodrigues/Fluxai";
+
+exports.ultimaVersao = onCall(
+  { region: "southamerica-east1", secrets: [GH_RELEASES_TOKEN], timeoutSeconds: 30, memory: "256MiB" },
+  async (request) => {
+    await exigirContaAtiva(request.auth);
+    const cabecalhos = {
+      Authorization: `Bearer ${GH_RELEASES_TOKEN.value()}`,
+      "User-Agent": "FluxAi-Functions",
+      "X-GitHub-Api-Version": "2022-11-28",
+    };
+
+    const resp = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { ...cabecalhos, Accept: "application/vnd.github+json" },
+    });
+    if (!resp.ok) {
+      console.error(`GitHub HTTP ${resp.status}: ${await resp.text()}`);
+      throw new HttpsError("unavailable", "Não foi possível consultar a atualização.");
+    }
+    const release = await resp.json();
+    const versao = Number(String(release.tag_name || "").split(".").pop().replace(/\D/g, ""));
+    const apk = (release.assets || []).find((a) => a.name.endsWith(".apk"));
+    if (!versao || !apk) throw new HttpsError("not-found", "Nenhuma versão publicada.");
+
+    // Só a versão (consulta frequente); o link do APK é pedido na hora de baixar
+    if (!request.data || request.data.link !== true) return { versao };
+
+    // O GitHub responde com um redirecionamento para um link assinado e temporário do arquivo
+    const arquivo = await fetch(`https://api.github.com/repos/${REPO}/releases/assets/${apk.id}`, {
+      headers: { ...cabecalhos, Accept: "application/octet-stream" },
+      redirect: "manual",
+    });
+    const urlApk = arquivo.headers.get("location");
+    if (!urlApk) {
+      console.error(`GitHub asset HTTP ${arquivo.status}`);
+      throw new HttpsError("unavailable", "Não foi possível gerar o link da atualização.");
+    }
+    return { versao, urlApk };
   }
 );

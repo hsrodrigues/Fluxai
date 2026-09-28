@@ -4,28 +4,48 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function logado() { return request.auth != null; }
-    function ehDono(uid) { return logado() && request.auth.uid == uid; }
+    // Único administrador: só ele ativa ou desativa usuários
+    function ehAdmin() {
+      return logado() && request.auth.token.email == 'hsrodrigues01@gmail.com' && request.auth.token.email_verified == true;
+    }
+    // Conta liberada pelo administrador (cadastro novo fica pendente até ser ativado)
+    function ativo() {
+      return ehAdmin() || (logado()
+        && exists(/databases/$(database)/documents/acesso/$(request.auth.uid))
+        && get(/databases/$(database)/documents/acesso/$(request.auth.uid)).data.ativo == true);
+    }
+    function ehDono(uid) { return ativo() && request.auth.uid == uid; }
     // Membro da conta conjunta: registrado em usuarios/{dono}/membros/{uid} por meio de um convite
     function ehMembro(uid) {
-      return logado() && exists(/databases/$(database)/documents/usuarios/$(uid)/membros/$(request.auth.uid));
+      return ativo() && exists(/databases/$(database)/documents/usuarios/$(uid)/membros/$(request.auth.uid));
     }
     function convite(codigo) { return get(/databases/$(database)/documents/convites/$(codigo)).data; }
 
+    // 0. ACESSO: cada conta cria o próprio registro como pendente; só o administrador ativa ou desativa
+    match /acesso/{uid} {
+      allow get: if ehAdmin() || (logado() && request.auth.uid == uid);
+      allow list: if ehAdmin();
+      allow create: if logado() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['nome', 'email', 'ativo', 'criadoEm'])
+        && request.resource.data.ativo == false;
+      allow update, delete: if ehAdmin();
+    }
+
     // 1. CONFIGURAÇÕES GLOBAIS (versão, link de atualização)
     match /app_config/{document=**} {
-      allow read: if logado();
-      allow write: if logado() && request.auth.token.email == 'hsrodrigues01@gmail.com';
+      allow read: if ativo();
+      allow write: if ehAdmin();
     }
 
     // 2. CONVITES DA CONTA CONJUNTA
     // Busca só pelo código (get); listar convites não é permitido
     match /convites/{codigo} {
-      allow get: if logado();
-      allow create: if logado()
+      allow get: if ativo();
+      allow create: if ativo()
         && request.resource.data.dono == request.auth.uid
         && request.resource.data.expiraEm is timestamp
         && request.resource.data.expiraEm <= request.time + duration.value(2, 'd');
-      allow delete: if logado() && resource.data.dono == request.auth.uid;
+      allow delete: if ativo() && resource.data.dono == request.auth.uid;
     }
 
     // 3. DOCUMENTO RAIZ DO USUÁRIO
@@ -35,9 +55,9 @@ service cloud.firestore {
 
     // 4. MEMBROS: o próprio parceiro entra com um convite válido do dono; dono ou membro podem remover
     match /usuarios/{userId}/membros/{membroId} {
-      allow read: if ehDono(userId) || (logado() && request.auth.uid == membroId);
-      allow delete: if ehDono(userId) || (logado() && request.auth.uid == membroId);
-      allow create: if logado()
+      allow read: if ehDono(userId) || (ativo() && request.auth.uid == membroId);
+      allow delete: if ehDono(userId) || (ativo() && request.auth.uid == membroId);
+      allow create: if ativo()
         && request.auth.uid == membroId
         && membroId != userId
         && convite(request.resource.data.codigo).dono == userId

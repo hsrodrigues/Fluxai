@@ -307,6 +307,17 @@ class MainActivity : FragmentActivity() {
             }
         }
 
+        // Conta ainda não ativada pelo administrador: fica só na tela de espera (abre sozinho ao ativar)
+        val statusAcesso by rememberStatusAcesso()
+        if (statusAcesso == StatusAcesso.PENDENTE) {
+            SideEffect { ajustarIconesBarras(view, topoEscuro = true, rodapeEscuro = true) }
+            TelaAguardandoAtivacao(onSair = {
+                Firebase.auth.signOut()
+                getSharedPreferences("AppPrefs", MODE_PRIVATE).edit { remove("workspace_uid"); remove("workspace_nome") }
+            })
+            return
+        }
+
         CompositionLocalProvider(LocalNavegar provides navegarPara) {
         NavHost(navController = navController, startDestination = "splash") {
 
@@ -513,6 +524,7 @@ class MainActivity : FragmentActivity() {
             composable("importar") { ImportarExtratoScreen(onLogout = sairDoApp) }
             composable("relatorio") { RelatorioAnualScreen(onLogout = sairDoApp) }
             composable("contas") { ContasBancariasScreen(onLogout = sairDoApp) }
+            composable("admin_usuarios") { AdminUsuariosScreen(onLogout = sairDoApp) }
         }
         }
     }
