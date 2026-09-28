@@ -32,7 +32,7 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
   body { font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif; color: var(--texto); background: var(--fundo); line-height: 1.6; -webkit-font-smoothing: antialiased; }
-  img { max-width: 100%; display: block; }
+  img { max-width: 100%; height: auto; display: block; }
   a { color: inherit; }
   .conteiner { width: 100%; max-width: 1140px; margin: 0 auto; padding: 0 20px; }
 
@@ -65,7 +65,7 @@
   .botao small { display: block; font-size: 12px; font-weight: 500; opacity: .8; }
   .info-versao { margin-top: 18px; font-size: 13px; color: rgba(255,255,255,.55); }
 
-  .celular { position: relative; justify-self: center; width: 290px; }
+  .celular { position: relative; justify-self: center; width: 320px; }
   .celular .moldura { border-radius: 42px; padding: 10px; background: linear-gradient(145deg, #3a2a66, #150f26); box-shadow: 0 40px 80px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.08); }
   .celular .moldura img { border-radius: 33px; }
   .celular .brilho { position: absolute; inset: -40px; background: radial-gradient(closest-side, rgba(126,87,194,.5), transparent); z-index: -1; filter: blur(20px); }
@@ -100,8 +100,10 @@
   /* Galeria */
   .galeria-fundo { background: linear-gradient(180deg, var(--fundo), var(--roxo-fundo)); }
   .galeria { display: flex; gap: 22px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 8px 20px 28px; scrollbar-width: thin; }
-  .galeria figure { flex: 0 0 220px; scroll-snap-align: center; }
-  .galeria img { border-radius: 26px; border: 6px solid #fff; box-shadow: 0 18px 40px rgba(46,26,94,.15); aspect-ratio: 540 / 1170; object-fit: cover; }
+  .galeria figure { flex: 0 0 250px; scroll-snap-align: center; }
+  .galeria .aparelho { border-radius: 36px; padding: 8px; background: linear-gradient(145deg, #3a2a66, #150f26); box-shadow: 0 24px 48px rgba(46,26,94,.22); transition: transform .25s; }
+  .galeria .aparelho:hover { transform: translateY(-6px); }
+  .galeria img { border-radius: 28px; width: 100%; }
   .galeria figcaption { text-align: center; font-size: 14px; font-weight: 600; color: var(--texto-fraco); margin-top: 14px; }
   @media (min-width: 1180px) { .galeria { justify-content: flex-start; padding-left: calc((100vw - 1140px) / 2 + 20px); } }
 
@@ -281,14 +283,14 @@
     </div>
   </div>
   <div class="galeria">
-    <figure><img src="img/dashboard.webp" alt="Dashboard" loading="lazy" width="540" height="1170"><figcaption>Dashboard do mês</figcaption></figure>
-    <figure><img src="img/novo_lancamento.webp" alt="Novo lançamento" loading="lazy" width="540" height="1170"><figcaption>Novo lançamento</figcaption></figure>
-    <figure><img src="img/lancamentos.webp" alt="Lançamentos" loading="lazy" width="540" height="1170"><figcaption>Lançamentos</figcaption></figure>
-    <figure><img src="img/analise.webp" alt="Análise BI" loading="lazy" width="540" height="1170"><figcaption>Análise BI</figcaption></figure>
-    <figure><img src="img/cartoes.webp" alt="Cartões" loading="lazy" width="540" height="1170"><figcaption>Cartões</figcaption></figure>
-    <figure><img src="img/caixinhas.webp" alt="Cofre e metas" loading="lazy" width="540" height="1170"><figcaption>Cofre e metas</figcaption></figure>
-    <figure><img src="img/assinaturas.webp" alt="Assinaturas" loading="lazy" width="540" height="1170"><figcaption>Assinaturas</figcaption></figure>
-    <figure><img src="img/menu.webp" alt="Menu" loading="lazy" width="540" height="1170"><figcaption>Menu</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/dashboard.webp" alt="Dashboard" loading="lazy" width="540" height="1170"></div><figcaption>Dashboard do mês</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/novo_lancamento.webp" alt="Novo lançamento" loading="lazy" width="540" height="1170"></div><figcaption>Novo lançamento</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/lancamentos.webp" alt="Lançamentos" loading="lazy" width="540" height="1170"></div><figcaption>Lançamentos</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/analise.webp" alt="Análise BI" loading="lazy" width="540" height="1170"></div><figcaption>Análise BI</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/cartoes.webp" alt="Cartões" loading="lazy" width="540" height="1170"></div><figcaption>Cartões</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/caixinhas.webp" alt="Cofre e metas" loading="lazy" width="540" height="1170"></div><figcaption>Cofre e metas</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/assinaturas.webp" alt="Assinaturas" loading="lazy" width="540" height="1170"></div><figcaption>Assinaturas</figcaption></figure>
+    <figure><div class="aparelho"><img src="img/menu.webp" alt="Menu" loading="lazy" width="540" height="1170"></div><figcaption>Menu</figcaption></figure>
   </div>
 </section>
 
