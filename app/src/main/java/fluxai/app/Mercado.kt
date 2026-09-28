@@ -58,6 +58,24 @@ object Mercado {
     const val SERIE_CDI = 12
     const val SERIE_SELIC = 11
 
+    // A API do Banco Central às vezes devolve uma página de erro no lugar do JSON: tenta até 3 vezes
+    fun lerJsonBcb(url: String): JSONArray {
+        var ultimoErro: Exception? = null
+        repeat(3) { tentativa ->
+            try {
+                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 10000; conn.readTimeout = 15000
+                conn.setRequestProperty("Accept", "application/json")
+                if (conn.responseCode == 404) return JSONArray()
+                val texto = conn.inputStream.bufferedReader().readText().trim()
+                if (conn.responseCode == 200 && texto.startsWith("[")) return JSONArray(texto)
+                ultimoErro = java.io.IOException("Banco Central respondeu ${conn.responseCode}")
+            } catch (e: Exception) { ultimoErro = e }
+            Thread.sleep(800L * (tentativa + 1))
+        }
+        throw ultimoErro ?: java.io.IOException("Banco Central indisponível")
+    }
+
     private fun baixarSgs(serie: Int, desde: String): List<Pair<String, Double>> {
         // A API aceita no máximo 10 anos por consulta: busca em blocos de 5 anos
         val saida = mutableListOf<Pair<String, Double>>()
@@ -68,18 +86,11 @@ object Mercado {
             val fimBloco = minOf(ano + 4, anoFim)
             val url = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.$serie/dados?formato=json" +
                 "&dataInicial=${isoParaBr(inicio)}&dataFinal=31/12/$fimBloco"
-            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 10000; conn.readTimeout = 15000
-            conn.setRequestProperty("Accept", "application/json")
-            if (conn.responseCode == 200) {
-                val arr = JSONArray(conn.inputStream.bufferedReader().readText())
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    val iso = brParaIso(o.getString("data")) ?: continue
-                    o.getString("valor").toDoubleOrNull()?.let { saida += iso to it }
-                }
-            } else if (conn.responseCode != 404) {
-                throw java.io.IOException("Banco Central respondeu ${conn.responseCode}")
+            val arr = lerJsonBcb(url)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val iso = brParaIso(o.getString("data")) ?: continue
+                o.getString("valor").toDoubleOrNull()?.let { saida += iso to it }
             }
             ano = fimBloco + 1
             inicio = "$ano-01-01"
@@ -108,9 +119,7 @@ object Mercado {
 
     private suspend fun selicMetaAtual(): Double = trava.withLock {
         selicMeta ?: withContext(Dispatchers.IO) {
-            val conn = java.net.URL("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json").openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 10000; conn.readTimeout = 10000
-            JSONArray(conn.inputStream.bufferedReader().readText()).getJSONObject(0).getString("valor").toDouble()
+            lerJsonBcb("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json").getJSONObject(0).getString("valor").toDouble()
         }.also { selicMeta = it }
     }
 
@@ -178,6 +187,23 @@ object Mercado {
         var meses = (a2 - a1) * 12 + (m2 - m1)
         if (d2 < d1) meses--
         return (1 + mensal).pow(meses.coerceAtLeast(0))
+    }
+
+    // Fechamento de cada mês ("aaaa-mm" -> preço) dos últimos 12 meses, para o gráfico de evolução
+    private val historicos = mutableMapOf<String, Pair<Long, Map<String, Double>>>()
+
+    suspend fun historicoPrecos(ativos: List<Pair<String, Boolean>>): Map<String, Map<String, Double>> {
+        val agora = System.currentTimeMillis()
+        val faltando = ativos.distinct().filter { (t, _) -> historicos[t]?.let { agora - it.first > 60 * 60 * 1000L } ?: true }
+        if (faltando.isNotEmpty()) runCatching {
+            val pedido = mapOf("ativos" to faltando.map { (t, cripto) -> mapOf("ticker" to t, "tipo" to if (cripto) "cripto" else "b3") })
+            val dados = Firebase.functions("southamerica-east1").getHttpsCallable("historicoPrecos").call(pedido).await().getData() as? Map<*, *>
+            (dados?.get("historico") as? Map<*, *>)?.forEach { (k, v) ->
+                val meses = (v as? Map<*, *>)?.mapNotNull { (mes, preco) -> (preco as? Number)?.let { mes.toString() to it.toDouble() } }?.toMap() ?: return@forEach
+                historicos[k.toString()] = agora to meses
+            }
+        }
+        return ativos.mapNotNull { (t, _) -> historicos[t]?.let { t to it.second } }.toMap()
     }
 
     // Cotações pela function; o que falhar fica sem cotação (o app mostra pelo preço médio)

@@ -119,9 +119,19 @@ data class InvestimentoCalculado(
     val rendimentoPct get() = if (investido > 0) rendimento / investido * 100 else 0.0
 }
 
+// Um ponto do gráfico: patrimônio e valor aplicado no fim de um mês (o último ponto é hoje)
+data class PontoEvolucao(val mes: String, val patrimonio: Double, val aplicado: Double) {
+    val hoje get() = mes.endsWith("*")
+    val rotulo get() = if (hoje) "hoje" else rotuloMes(mes)
+}
+
+private val MesesCurtos = listOf("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
+fun rotuloMes(mes: String) = "${MesesCurtos[mes.substring(5, 7).toInt() - 1]}/${mes.substring(2, 4)}"
+
 data class EstadoInvestimentos(
     val carregando: Boolean = true,
     val itens: List<InvestimentoCalculado> = emptyList(),
+    val evolucao: List<PontoEvolucao> = emptyList(),
     val cdiAnual: Double? = null,
     val erroMercado: Boolean = false
 ) {
@@ -195,6 +205,39 @@ suspend fun calcularCarteira(lista: List<Investimento>): Pair<List<InvestimentoC
     return itens to falhou
 }
 
+// Patrimônio no fim de cada um dos últimos meses, desde o primeiro movimento (máx. 12 meses + hoje).
+// Renda fixa pelos índices até aquela data; renda variável pelo fechamento do mês (sem histórico, usa o preço médio).
+suspend fun evolucaoCarteira(lista: List<Investimento>, atual: EstadoInvestimentos): List<PontoEvolucao> {
+    val primeiro = lista.flatMap { it.movimentos }.minOfOrNull { it.data } ?: return emptyList()
+    val hoje = hojeIso()
+    val fins = mutableListOf<String>()
+    val cal = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1); add(Calendar.DAY_OF_MONTH, -1) }
+    repeat(12) {
+        val fim = "%04d-%02d-%02d".format(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+        if (fim.substring(0, 7) >= primeiro.substring(0, 7)) fins += fim
+        cal.set(Calendar.DAY_OF_MONTH, 1); cal.add(Calendar.DAY_OF_MONTH, -1)
+    }
+    val historico = lista.filter { it.variavel && it.ticker.isNotBlank() }.map { it.ticker to (it.tipo == "Cripto") }
+        .takeIf { it.isNotEmpty() }?.let { Mercado.historicoPrecos(it) } ?: emptyMap()
+    val pontos = fins.reversed().map { fim ->
+        var patrimonio = 0.0; var aplicado = 0.0
+        lista.forEach { inv ->
+            val movs = inv.movimentos.filter { it.data <= fim }
+            if (movs.isEmpty()) return@forEach
+            if (inv.variavel) {
+                val (qtd, pm) = posicaoVariavel(movs)
+                patrimonio += qtd * (historico[inv.ticker]?.get(fim.substring(0, 7)) ?: pm)
+                aplicado += qtd * pm
+            } else {
+                movs.forEach { m -> patrimonio += m.valor * runCatching { Mercado.fatorRendaFixa(inv.indexadorEfetivo, inv.taxa, m.data, fim) }.getOrDefault(1.0) }
+                aplicado += movs.sumOf { it.custo ?: it.valor }
+            }
+        }
+        PontoEvolucao(fim.substring(0, 7), patrimonio.coerceAtLeast(0.0), aplicado.coerceAtLeast(0.0))
+    }
+    return pontos + PontoEvolucao(hoje.substring(0, 7) + "*", atual.total, atual.investido)
+}
+
 fun lerInvestimento(d: com.google.firebase.firestore.DocumentSnapshot): Investimento? = runCatching {
     @Suppress("UNCHECKED_CAST")
     val movs = (d.get("movimentos") as? List<Map<String, Any?>>).orEmpty().mapNotNull { m ->
@@ -241,6 +284,7 @@ class InvestimentosViewModel : ViewModel() {
         calculo = viewModelScope.launch {
             val (itens, falhou) = calcularCarteira(lista)
             _estado.value = _estado.value.copy(carregando = false, itens = itens.sortedByDescending { it.valorAtual }, erroMercado = falhou)
+            _estado.value = _estado.value.copy(evolucao = runCatching { evolucaoCarteira(lista, _estado.value) }.getOrDefault(emptyList()))
         }
     }
 
@@ -369,6 +413,8 @@ fun InvestimentosScreen(onLogout: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { ResumoCarteira(estado, c) }
+
+            if (estado.evolucao.size >= 2) item { CardEvolucaoPatrimonio(estado.evolucao, c) }
 
             if (estado.itens.size > 1) item { DistribuicaoCarteira(estado, c) }
 

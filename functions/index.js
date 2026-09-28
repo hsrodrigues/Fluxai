@@ -240,3 +240,60 @@ exports.cotacoes = onCall(
     return { cotacoes: resultado };
   }
 );
+
+// Fechamento de cada mês (últimos 12) para o gráfico de evolução do patrimônio. Cache de 6 h por ativo.
+const cacheHistorico = new Map();
+const CACHE_HISTORICO_MS = 6 * 60 * 60 * 1000;
+const chaveMes = (ms) => new Date(ms).toISOString().slice(0, 7);
+
+async function historicoB3(ticker) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}.SA?range=2y&interval=1mo`;
+  const resp = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  if (!resp.ok) return null;
+  const r = (await resp.json())?.chart?.result?.[0];
+  if (!r) return null;
+  const meses = {};
+  const tempos = r.timestamp || [];
+  const fechamentos = r.indicators?.quote?.[0]?.close || [];
+  // Cada barra mensal fecha no último pregão do mês; a última barra é o preço mais recente
+  tempos.forEach((t, i) => { if (typeof fechamentos[i] === "number") meses[chaveMes(t * 1000)] = fechamentos[i]; });
+  return meses;
+}
+
+async function historicoCripto(ticker) {
+  const resp = await fetch(`https://economia.awesomeapi.com.br/json/daily/${encodeURIComponent(ticker)}-BRL/360`);
+  if (!resp.ok) return null;
+  const dias = await resp.json();
+  if (!Array.isArray(dias)) return null;
+  const meses = {};
+  // Lista vem do mais novo para o mais antigo: o primeiro de cada mês é o fechamento dele
+  for (const d of dias) {
+    const mes = chaveMes(Number(d.timestamp) * 1000);
+    if (!(mes in meses) && Number(d.bid) > 0) meses[mes] = Number(d.bid);
+  }
+  return meses;
+}
+
+exports.historicoPrecos = onCall(
+  { region: "southamerica-east1", timeoutSeconds: 30, memory: "256MiB" },
+  async (request) => {
+    await exigirContaAtiva(request.auth);
+    const ativos = Array.isArray(request.data?.ativos) ? request.data.ativos.slice(0, 40) : [];
+    const resultado = {};
+    await Promise.all(ativos.map(async (a) => {
+      const ticker = String(a?.ticker || "").toUpperCase().trim();
+      const cripto = a?.tipo === "cripto";
+      if (!/^[A-Z0-9]{2,12}$/.test(ticker)) return;
+      const chave = `${cripto ? "c" : "b"}:${ticker}`;
+      const guardado = cacheHistorico.get(chave);
+      if (guardado && Date.now() - guardado.em < CACHE_HISTORICO_MS) { resultado[ticker] = guardado.dados; return; }
+      try {
+        const dados = cripto ? await historicoCripto(ticker) : await historicoB3(ticker);
+        if (dados) { cacheHistorico.set(chave, { em: Date.now(), dados }); resultado[ticker] = dados; }
+      } catch (e) {
+        console.error(`Histórico ${chave}: ${e.message}`);
+      }
+    }));
+    return { historico: resultado };
+  }
+);

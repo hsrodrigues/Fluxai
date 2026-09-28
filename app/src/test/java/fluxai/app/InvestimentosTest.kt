@@ -1,7 +1,6 @@
 package fluxai.app
 
 import kotlinx.coroutines.runBlocking
-import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -46,8 +45,7 @@ class InvestimentosTest {
     }
 
     private fun serieMensalBcb(serie: Int, de: String, ate: String): List<Double> {
-        val txt = java.net.URL("https://api.bcb.gov.br/dados/serie/bcdata.sgs.$serie/dados?formato=json&dataInicial=$de&dataFinal=$ate").readText()
-        val arr = JSONArray(txt)
+        val arr = Mercado.lerJsonBcb("https://api.bcb.gov.br/dados/serie/bcdata.sgs.$serie/dados?formato=json&dataInicial=$de&dataFinal=$ate")
         return (0 until arr.length()).map { arr.getJSONObject(it).getString("valor").toDouble() }
     }
 
@@ -84,6 +82,24 @@ class InvestimentosTest {
         // Selic acima de 8,5%: 0,5% ao mês. De 10/01 a 09/09 são 7 aniversários completos.
         assertEquals(1.005.pow(7), Mercado.fatorRendaFixa(INDEXADOR_POUPANCA, 0.0, "2026-01-10", "2026-09-09"), 1e-9)
         assertEquals(1.005.pow(8), Mercado.fatorRendaFixa(INDEXADOR_POUPANCA, 0.0, "2026-01-10", "2026-09-10"), 1e-9)
+    }
+
+    @Test
+    fun evolucaoMesAMesDaRendaFixa() = runBlocking {
+        val inv = Investimento(id = "x", nome = "CDB", tipo = "Renda fixa", indexador = INDEXADOR_CDI, taxa = 100.0,
+            movimentos = listOf(MovimentoInvestimento("a", "2026-01-02", valor = 1000.0)))
+        val atual = EstadoInvestimentos(carregando = false, itens = calcularCarteira(listOf(inv)).first)
+        val pontos = evolucaoCarteira(listOf(inv), atual)
+        // Começa no mês do primeiro aporte e termina em "hoje"
+        assertEquals("2026-01", pontos.first().mes)
+        assert(pontos.last().hoje)
+        assertEquals("jan/26", pontos.first().rotulo)
+        // Aplicado constante; patrimônio só cresce e bate com o fator do CDI no fim de cada mês
+        pontos.forEach { assertEquals(1000.0, it.aplicado, 1e-9) }
+        pontos.zipWithNext().forEach { (a, b) -> assert(b.patrimonio >= a.patrimonio) }
+        val fimJunho = 1000 * Mercado.fatorRendaFixa(INDEXADOR_CDI, 100.0, "2026-01-02", "2026-06-30")
+        assertEquals(fimJunho, pontos.first { it.mes == "2026-06" }.patrimonio, 1e-6)
+        assertEquals(atual.total, pontos.last().patrimonio, 1e-9)
     }
 
     @Test
