@@ -307,6 +307,14 @@ class MainActivity : FragmentActivity() {
             }
         }
 
+        // Versão abaixo da mínima publicada: só a tela de atualização (vale para todas as contas)
+        val atualizacaoObrigatoria by rememberAtualizacaoObrigatoria()
+        atualizacaoObrigatoria?.let { remota ->
+            SideEffect { ajustarIconesBarras(view, topoEscuro = true, rodapeEscuro = true) }
+            TelaAtualizacaoObrigatoria(remota)
+            return
+        }
+
         // Conta ainda não ativada pelo administrador: fica só na tela de espera (abre sozinho ao ativar)
         val statusAcesso by rememberStatusAcesso()
         if (statusAcesso == StatusAcesso.PENDENTE) {

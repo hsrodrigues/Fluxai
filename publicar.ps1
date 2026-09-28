@@ -4,7 +4,8 @@
 # Uso: .\publicar.ps1                 (usa o próximo número depois da última tag)
 #      .\publicar.ps1 -Versao 420
 #      .\publicar.ps1 -SoSite -Versao 420   (só republica no site uma versão já compilada)
-param([int]$Versao = 0, [switch]$SoSite)
+#      .\publicar.ps1 -Opcional     (não bloqueia as versões anteriores; por padrão elas deixam de abrir)
+param([int]$Versao = 0, [switch]$SoSite, [switch]$Opcional)
 $ErrorActionPreference = "Stop"
 
 if ($Versao -eq 0) {
@@ -41,8 +42,12 @@ New-Item -ItemType Directory -Force $pasta | Out-Null
 Remove-Item "$pasta/*.apk" -ErrorAction SilentlyContinue
 gh release download $tag --pattern "FluxAi.apk" --dir $pasta --clobber
 $apk = Get-Item "$pasta/FluxAi.apk"
+# Versão mínima aceita pelo app: a nova, ou a anterior se a atualização for opcional
+$minima = $Versao
+if ($Opcional -and (Test-Path "site/versao.json")) { $minima = (Get-Content "site/versao.json" -Raw | ConvertFrom-Json).minima }
 $info = [ordered]@{
     versao    = $Versao
+    minima    = [int]$minima
     nome      = "1.0.$Versao"
     apk       = "download/FluxAi.apk"
     tamanhoMb = [math]::Round($apk.Length / 1MB, 1)
