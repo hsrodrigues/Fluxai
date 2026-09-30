@@ -119,7 +119,6 @@ fun DashboardScreen(
     // Estado da barra de pesquisa
     var textoPesquisa by remember { mutableStateOf("") }
 
-    var criarRendaDoMes by remember { mutableStateOf(false) }
     var adiantamentoString by remember { mutableStateOf("") }
     var pagamentoString by remember { mutableStateOf("") }
     var extraString by remember { mutableStateOf("") }
@@ -149,7 +148,6 @@ fun DashboardScreen(
     var comprasDetectadas by remember { mutableStateOf<List<CompraPendente>>(emptyList()) }
     var limitesCategoria by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
     var caixinhasMetas by remember { mutableStateOf<List<Caixinha>>(emptyList()) }
-    var rendaPadrao by remember { mutableStateOf<Pair<Double, Double>?>(null) } // (adiantamento, salário)
     var mostrarCompras by remember { mutableStateOf(false) }
     var despesaParaComprovante by remember { mutableStateOf<Despesa?>(null) }
     var despesaVerComprovante by remember { mutableStateOf<Despesa?>(null) }
@@ -193,11 +191,6 @@ fun DashboardScreen(
                     if (snap != null) caixinhasMetas = snap.documents.map { d ->
                         Caixinha(d.id, d.getString("nome") ?: "", d.getDouble("meta") ?: 0.0, d.getDouble("saldo") ?: 0.0, d.getString("icone") ?: "", d.getString("prazo") ?: "")
                     }
-                }
-            ouvintes += banco.collection("usuarios").document(workspaceUid)
-                .addSnapshotListener { doc, _ ->
-                    val r = doc?.get("rendaPadrao") as? Map<*, *>
-                    rendaPadrao = r?.let { ((it["adiantamento"] as? Number)?.toDouble() ?: 0.0) to ((it["pagamento"] as? Number)?.toDouble() ?: 0.0) }
                 }
         }
         // Desliga os ouvintes ao sair da tela ou trocar a chave (ex.: mês), senão eles se acumulam
@@ -259,7 +252,6 @@ fun DashboardScreen(
                 extraString = "0,00"
                 editandoSaldo = true
             }
-            criarRendaDoMes = doc != null && !doc.exists() && !doc.metadata.isFromCache
         }
 
         ouvintes += banco.collection("usuarios").document(workspaceUid).collection("despesas").whereEqualTo("mesAno", mesAnoSelecionado).addSnapshotListener { snap, _ ->
@@ -273,17 +265,31 @@ fun DashboardScreen(
         onDispose { ouvintes.forEach { it.remove() } }
     }
 
-    // Mês sem renda cadastrada: usa a renda padrão (definida na apresentação ou ao salvar o mês atual).
-    // Só do mês corrente em diante, para não inventar renda em meses que já passaram.
-    LaunchedEffect(criarRendaDoMes, rendaPadrao, mesAnoSelecionado) {
-        val padrao = rendaPadrao ?: return@LaunchedEffect
-        if (!criarRendaDoMes) return@LaunchedEffect
-        val (m, a) = mesAnoSelecionado.split("/").map { it.toInt() }
-        val hoje = Calendar.getInstance()
-        if (a * 12 + m < hoje.get(Calendar.YEAR) * 12 + hoje.get(Calendar.MONTH) + 1) return@LaunchedEffect
-        criarRendaDoMes = false
-        banco.collection("usuarios").document(workspaceUid).collection("saldos").document(mesAnoSelecionado.replace("/", "-"))
-            .set(mapOf("adiantamento" to padrao.first, "pagamento" to padrao.second, "extra" to 0.0, "valor" to padrao.first + padrao.second), com.google.firebase.firestore.SetOptions.merge())
+    // Limpeza única: versões antigas copiavam a renda padrão para todo mês futuro aberto sem renda cadastrada.
+    // Zera só os valores de 11/2026 em diante que continuam idênticos à renda padrão e sem renda extra.
+    LaunchedEffect(workspaceUid) {
+        if (sharedPref.getBoolean("limpeza_renda_copiada", false)) return@LaunchedEffect
+        val usuarioDoc = banco.collection("usuarios").document(workspaceUid)
+        usuarioDoc.get().addOnSuccessListener { u ->
+            val r = u.get("rendaPadrao") as? Map<*, *>
+            val ad = (r?.get("adiantamento") as? Number)?.toDouble() ?: 0.0
+            val pg = (r?.get("pagamento") as? Number)?.toDouble() ?: 0.0
+            if (ad + pg <= 0) {
+                sharedPref.edit().putBoolean("limpeza_renda_copiada", true).apply()
+                return@addOnSuccessListener
+            }
+            usuarioDoc.collection("saldos").get().addOnSuccessListener { snap ->
+                val lote = banco.batch()
+                snap.documents.forEach { d ->
+                    val partes = d.id.split("-").mapNotNull { it.toIntOrNull() } // id no formato MM-yyyy
+                    if (partes.size != 2 || partes[1] * 12 + partes[0] < 2026 * 12 + 11) return@forEach
+                    if (d.getDouble("adiantamento") == ad && d.getDouble("pagamento") == pg && (d.getDouble("extra") ?: 0.0) == 0.0) {
+                        lote.update(d.reference, mapOf("adiantamento" to 0.0, "pagamento" to 0.0, "valor" to 0.0))
+                    }
+                }
+                lote.commit().addOnSuccessListener { sharedPref.edit().putBoolean("limpeza_renda_copiada", true).apply() }
+            }
+        }
     }
 
     // Variáveis restauradas corretamente
