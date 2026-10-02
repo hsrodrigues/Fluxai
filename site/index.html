@@ -164,6 +164,9 @@
     .cf-1 { left: -24px; } .cf-2 { right: -20px; }
     .botao { width: 100%; justify-content: center; }
   }
+  .voltar-topo { position: fixed; right: 16px; bottom: 16px; width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--roxo); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity .2s, transform .2s; z-index: 50; }
+  .voltar-topo.visivel { opacity: 1; pointer-events: auto; transform: none; }
+  .voltar-topo:hover { background: var(--roxo-claro); }
 </style>
 </head>
 <body>
@@ -369,6 +372,10 @@
   </div>
 </footer>
 
+<button class="voltar-topo" id="voltar-topo" type="button" aria-label="Voltar ao topo" title="Voltar ao topo">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
 <script>
   document.getElementById("ano").textContent = new Date().getFullYear();
   // Versão publicada (o mesmo arquivo que o app consulta para se atualizar)
@@ -382,6 +389,9 @@
       if (d) document.querySelector(".rotulo-tamanho").textContent = "APK oficial assinado · atualizado em " + d;
     })
     .catch(function () {});
+  var btnTopo = document.getElementById("voltar-topo");
+  window.addEventListener("scroll", function () { btnTopo.classList.toggle("visivel", window.scrollY > 600); }, { passive: true });
+  btnTopo.addEventListener("click", function () { window.scrollTo({ top: 0, behavior: "smooth" }); });
 </script>
 </body>
 </html>
