@@ -132,9 +132,8 @@ firebase deploy --only functions
 
 ## 🔐 Acesso
 
-* Todo cadastro novo fica **pendente** até o administrador (`hsrodrigues01@gmail.com`) ativar em **Menu → Usuários**.
-* A trava vale no servidor: `firestore.rules`, `storage.rules` e as functions exigem `acesso/{uid}.ativo == true`.
-* O APK é público na página de download, mas sem conta ativada o app não abre nada.
+* Qualquer pessoa pode criar conta e usar o app; cada conta só enxerga os próprios dados (e os da conta conjunta a que foi convidada).
+* A trava vale no servidor: `firestore.rules`, `storage.rules` e as functions exigem usuário logado.
 
 ## 📄 Licença
 

@@ -1,13 +1,10 @@
 rules_version = '2';
 
 // Comprovantes: só o dono da conta e os membros da conta conjunta leem e gravam.
-// A lista de membros e o acesso ativo vêm do Firestore (mesma regra do firestore.rules).
+// A lista de membros vem do Firestore (mesma regra do firestore.rules).
 service firebase.storage {
   match /b/{bucket}/o {
-    function contaAtiva() {
-      return (request.auth.token.email == 'hsrodrigues01@gmail.com' && request.auth.token.email_verified == true)
-        || firestore.get(/databases/(default)/documents/acesso/$(request.auth.uid)).data.ativo == true;
-    }
+    function contaAtiva() { return request.auth != null; }
 
     match /usuarios/{userId}/comprovantes/{arquivo} {
       function podeAcessar() {

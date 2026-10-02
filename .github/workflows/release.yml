@@ -42,11 +42,12 @@ jobs:
           echo "FLUXAI_KEYSTORE=$RUNNER_TEMP/fluxai.keystore" >> "$GITHUB_ENV"
           touch local.properties
 
-      - name: Compilar APK release
+      - name: Compilar APK (site) e AAB (loja)
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease -PversionCodeCI=${{ steps.versao.outputs.codigo }}
-          cp app/build/outputs/apk/release/app-release.apk FluxAi.apk
+          ./gradlew assembleSiteRelease bundleLojaRelease -PversionCodeCI=${{ steps.versao.outputs.codigo }}
+          cp app/build/outputs/apk/site/release/app-site-release.apk FluxAi.apk
+          cp app/build/outputs/bundle/lojaRelease/app-loja-release.aab FluxAi.aab
 
       # Trava de segurança: só publica se o APK estiver assinado com a chave original do app
       # (outra chave impede atualizar por cima e quebra o login do Google)
@@ -61,4 +62,11 @@ jobs:
         with:
           name: FluxAi-apk
           path: FluxAi.apk
+          retention-days: 30
+
+      # AAB para o Google Play (teste interno): sem auto-atualização, enviado manualmente ao Play Console
+      - uses: actions/upload-artifact@v5
+        with:
+          name: FluxAi-aab
+          path: FluxAi.aab
           retention-days: 30

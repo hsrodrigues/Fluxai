@@ -34,12 +34,12 @@ val verCode = (findProperty("versionCodeCI") as String?)?.toInt() ?: currentVers
 
 android {
     namespace = "fluxai.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "fluxai.app"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = verCode
         versionName = "1.0.$verCode"
 
@@ -55,6 +55,21 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+    }
+
+    // Duas formas de distribuir o mesmo app:
+    // - site: APK baixado do site, que se atualiza sozinho pelo versao.json
+    // - loja: AAB do Google Play, sem auto-atualização nem permissão de instalar pacotes (a loja não aceita)
+    flavorDimensions += "distribuicao"
+    productFlavors {
+        create("site") {
+            dimension = "distribuicao"
+            buildConfigField("boolean", "AUTO_ATUALIZACAO", "true")
+        }
+        create("loja") {
+            dimension = "distribuicao"
+            buildConfigField("boolean", "AUTO_ATUALIZACAO", "false")
         }
     }
 

@@ -61,7 +61,7 @@ data class VersaoRemota(val versao: Long, val urlApk: String, val minima: Long =
 private const val URL_SITE = "https://fluxai-adbdf.web.app"
 
 // Chamar fora da thread principal. Retorna null se não houver versão publicada ou der erro de rede.
-fun buscarUltimaVersao(): VersaoRemota? = try {
+fun buscarUltimaVersao(): VersaoRemota? = if (!BuildConfig.AUTO_ATUALIZACAO) null else try {
     val conn = java.net.URL("$URL_SITE/versao.json").openConnection() as java.net.HttpURLConnection
     conn.useCaches = false
     conn.connectTimeout = 8000

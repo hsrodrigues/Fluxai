@@ -19,17 +19,9 @@ const PERFIS = {
   chat: { chave: GROQ_API_KEY_CONSULTOR, modelo: "openai/gpt-oss-20b", temperatura: 0.6, maxTokens: 900, reasoning: "low", maxMensagens: 10 },
 };
 
-// Único administrador: sempre ativo e o único que libera outras contas (mesma regra do firestore.rules)
-const EMAIL_ADMIN = "hsrodrigues01@gmail.com";
-
-// Conta liberada pelo administrador; cadastro novo fica pendente até ser ativado
+// Qualquer conta logada pode usar (não há mais ativação pelo administrador)
 async function exigirContaAtiva(auth) {
   if (!auth) throw new HttpsError("unauthenticated", "Faça login para continuar.");
-  if (auth.token.email === EMAIL_ADMIN && auth.token.email_verified === true) return;
-  const doc = await getFirestore().collection("acesso").doc(auth.uid).get();
-  if (!doc.exists || doc.get("ativo") !== true) {
-    throw new HttpsError("permission-denied", "Sua conta ainda não foi ativada.");
-  }
 }
 
 const LIMITE_DIARIO_POR_USUARIO = 60;
@@ -138,37 +130,6 @@ exports.excluirConta = onCall(
   }
 );
 
-
-// Traz para a lista de acesso as contas criadas antes da ativação (ficam pendentes).
-// Só o administrador chama, pela tela Usuários do app.
-exports.importarContas = onCall(
-  { region: "southamerica-east1", timeoutSeconds: 120, memory: "256MiB" },
-  async (request) => {
-    const auth = request.auth;
-    if (!auth || auth.token.email !== EMAIL_ADMIN || auth.token.email_verified !== true) {
-      throw new HttpsError("permission-denied", "Só o administrador pode importar contas.");
-    }
-    const db = getFirestore();
-    let novas = 0;
-    let pagina;
-    do {
-      const lista = await getAuth().listUsers(1000, pagina);
-      for (const u of lista.users) {
-        const ref = db.collection("acesso").doc(u.uid);
-        if ((await ref.get()).exists) continue;
-        await ref.set({
-          nome: u.displayName || "",
-          email: u.email || "",
-          ativo: u.email === EMAIL_ADMIN,
-          criadoEm: new Date(u.metadata.creationTime),
-        });
-        novas++;
-      }
-      pagina = lista.pageToken;
-    } while (pagina);
-    return { novas };
-  }
-);
 
 // Cotações para a carteira de investimentos: B3 (ações, FIIs, ETFs) pelo Yahoo Finance e cripto pela AwesomeAPI.
 // Pelo servidor para trocar a fonte sem atualizar o app. Cache de 5 min por ativo.

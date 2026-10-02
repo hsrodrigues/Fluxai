@@ -180,8 +180,6 @@ fun MenuLateral(
             MenuItem("Configurações", Icons.Default.AccountCircle, rotaAtual == "settings", colorAccent, colorTextSecondary) { abrir(onAbrirSettings, "settings") }
             MenuItem(if (isDark) "Modo Claro" else "Modo Escuro", if (isDark) Icons.Default.WbSunny else Icons.Default.DarkMode, false, colorAccent, colorTextSecondary) { toggleTheme() }
             MenuItem("Sobre o App", Icons.Default.Info, rotaAtual == "sobre", colorAccent, colorTextSecondary) { abrir(onAbrirSobre, "sobre") }
-            // Só o administrador vê: ativar e desativar contas
-            if (ehAdmin()) MenuItem("Usuários", Icons.Default.AdminPanelSettings, rotaAtual == "admin_usuarios", colorAccent, colorTextSecondary) { abrir(null, "admin_usuarios") }
 
             Spacer(modifier = Modifier.height(32.dp))
 
