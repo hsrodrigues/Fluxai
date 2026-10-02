@@ -1916,7 +1916,9 @@ fun calcularPrevisao(despesas: List<Despesa>, sobraTotal: Double, totalRenda: Do
 
     val doMes = despesas.filter { it.projetoId == null && it.status != "Próximo Mês" }
     val totalVariavel = doMes.filter { it.tipo == "Variável" }.sumOf { it.valor }
-    val ritmoDiario = if (totalVariavel > 0) totalVariavel / diaHoje else 0.0
+    val projecaoConfiavel = diaHoje >= 5
+    // Nos primeiros dias a média diária dispara (poucos dias dividindo compras grandes), então não extrapola
+    val ritmoDiario = if (totalVariavel > 0 && projecaoConfiavel) totalVariavel / diaHoje else 0.0
 
     // A sobra final já desconta tudo que foi lançado; projeta só o gasto variável que ainda virá
     val sobraProjetada = sobraFinal - ritmoDiario * diasRestantes
@@ -1934,6 +1936,8 @@ fun calcularPrevisao(despesas: List<Despesa>, sobraTotal: Double, totalRenda: Do
     val (nivel, titulo, mensagem) = when {
         sobraFinal <= 0 -> Triple(NivelPrevisao.RISCO, "Orçamento estourado",
             "Suas despesas já superam a renda do mês em ${brl(-sobraFinal)}. Segure os gastos variáveis e veja o que pode ficar para o próximo mês.")
+        !projecaoConfiavel -> Triple(NivelPrevisao.INFO, "Início do mês",
+            "Ainda é cedo para projetar o ritmo de gastos. Por enquanto, você pode gastar até ${brl(limiteDiario)} por dia até o fim do mês sem zerar a sobra.")
         ritmoDiario == 0.0 -> Triple(NivelPrevisao.INFO, "Sem gastos variáveis ainda",
             "Você pode gastar até ${brl(limiteDiario)} por dia até o fim do mês sem zerar a sobra.")
         diaZera != null -> Triple(NivelPrevisao.RISCO, "A sobra zera no dia $diaZera",
@@ -1944,7 +1948,7 @@ fun calcularPrevisao(despesas: List<Despesa>, sobraTotal: Double, totalRenda: Do
             "No ritmo atual de ${brl(ritmoDiario)}/dia, você fecha o mês com cerca de ${brl(sobraProjetada)} de sobra.")
     }
 
-    return PrevisaoFinanceira(nivel, titulo, mensagem, diaHoje, diasNoMes, ritmoDiario, sobraProjetada, limiteDiario, diaZera, vencidas, proximas, projecaoConfiavel = diaHoje >= 5, reservaMetas = reservaMetas)
+    return PrevisaoFinanceira(nivel, titulo, mensagem, diaHoje, diasNoMes, ritmoDiario, sobraProjetada, limiteDiario, diaZera, vencidas, proximas, projecaoConfiavel = projecaoConfiavel, reservaMetas = reservaMetas)
 }
 
 @Composable
@@ -2014,9 +2018,9 @@ fun CardAnalisePreditiva(previsao: PrevisaoFinanceira, isDark: Boolean) {
                 Text("Já considera ${brl(previsao.reservaMetas)} para guardar nas metas este mês.", fontSize = 12.sp, color = corTexto.copy(alpha = 0.85f))
             }
 
-            if (!previsao.projecaoConfiavel && previsao.ritmoDiario > 0) {
+            if (!previsao.projecaoConfiavel) {
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Início do mês: a projeção ainda pode variar bastante.", fontSize = 11.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = corTexto.copy(alpha = 0.7f))
+                Text("Início do mês: a projeção só começa a partir do dia 5.", fontSize = 11.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = corTexto.copy(alpha = 0.7f))
             }
         }
     }
