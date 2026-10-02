@@ -1507,6 +1507,18 @@ private fun BlocoQuinzena(
 }
 
 @Composable
+private fun PillPastel(texto: String, cor: Color, isDark: Boolean) {
+    // Pastel: fundo bem clarinho (ou translúcido no escuro) e texto da mesma matiz, suavizado
+    val fundo = if (isDark) cor.copy(alpha = 0.25f) else androidx.compose.ui.graphics.lerp(cor, Color.White, 0.82f)
+    val textoCor = if (isDark) androidx.compose.ui.graphics.lerp(cor, Color.White, 0.6f) else androidx.compose.ui.graphics.lerp(cor, Color.Black, 0.3f)
+    Box(
+        Modifier.padding(end = 4.dp, top = 2.dp).background(fundo, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp)
+    ) {
+        Text(texto, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = textoCor, maxLines = 1)
+    }
+}
+
+@Composable
 fun DashDespesaCard(
     despesa: Despesa,
     isDark: Boolean,
@@ -1536,14 +1548,25 @@ fun DashDespesaCard(
     }
     val corBorda = if (ehProjeto) azulProjeto.copy(alpha = 0.45f) else if (isDark) Color(0xFF2C2C2C) else Color(0xFFE5E7EB)
 
-    // Linha secundária: vencimento (ou projeto) · tipo · frequência
+    // Linha secundária: pills pastéis (vencimento/projeto, frequência, tipo) + cartão e quem pagou
     val detalhes = listOfNotNull(
-        if (ehProjeto) "Projeto" else despesa.diaVencimento.takeIf { it > 0 }?.let { "Dia $it" },
         cartao?.first?.takeIf { it.isNotBlank() },
-        if (pagoPorOutro) despesa.pagoPorNome?.let { "pago por $it" } else null,
-        despesa.tipo,
-        despesa.frequencia
+        if (pagoPorOutro) despesa.pagoPorNome?.let { "pago por $it" } else null
     ).joinToString(" · ")
+    val corDia = run {
+        val hoje = java.util.Calendar.getInstance()
+        val mesHoje = String.format("%02d/%d", hoje.get(java.util.Calendar.MONTH) + 1, hoje.get(java.util.Calendar.YEAR))
+        val dia = despesa.diaVencimento
+        when {
+            pago -> Color(0xFF43A047)
+            despesa.mesAno != mesHoje -> Color(0xFF78909C)
+            dia < hoje.get(java.util.Calendar.DAY_OF_MONTH) -> Color(0xFFE53935)
+            dia <= hoje.get(java.util.Calendar.DAY_OF_MONTH) + 3 -> Color(0xFFFB8C00)
+            else -> Color(0xFF78909C)
+        }
+    }
+    val corFreq = if (despesa.frequencia.equals("Quinzenal", true)) Color(0xFF8E24AA) else Color(0xFF1E88E5)
+    val corTipo = if (despesa.tipo == "Fixa") Color(0xFF00897B) else Color(0xFFF57C00)
 
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -1606,8 +1629,12 @@ fun DashDespesaCard(
                         Icon(Icons.Default.AttachFile, "Tem comprovante", tint = corFraca, modifier = Modifier.size(13.dp))
                         Spacer(Modifier.width(2.dp))
                     }
-                    Text(detalhes, fontSize = 12.sp, color = corFraca, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    if (ehProjeto) PillPastel("Projeto", azulProjeto, isDark)
+                    else if (despesa.diaVencimento > 0) PillPastel("Dia ${despesa.diaVencimento}", corDia, isDark)
+                    if (despesa.frequencia != "Única") PillPastel(despesa.frequencia, corFreq, isDark)
+                    PillPastel(despesa.tipo, corTipo, isDark)
                 }
+                if (detalhes.isNotBlank()) Text(detalhes, fontSize = 11.sp, color = corFraca)
             }
 
             Spacer(Modifier.width(8.dp))
