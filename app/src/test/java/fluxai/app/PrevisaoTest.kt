@@ -124,4 +124,16 @@ class PrevisaoTest {
         assertEquals(listOf("Luz"), p.contasVencidas.map { it.descricao })
         assertEquals(listOf("Internet", "Água"), p.contasProximas.map { it.descricao })
     }
+
+    @Test
+    fun semSalarioNaSegundaQuinzenaNaoProjetaNemDizOrcamentoEstourado() {
+        // Caso real do dia 5: sobra de -R$ 1.000,68 só porque o salário não foi lançado virava -R$ 10.988 no fim do mês
+        val p = calcularPrevisao(listOf(variavel(1920.67)), sobraTotal = -1000.68, totalRenda = 1889.42, hoje = dia(5), salarioPreenchido = false)
+        assertTrue(p.semSalario)
+        assertEquals(NivelPrevisao.INFO, p.nivel)
+        assertEquals("Falta o salário da 2ª quinzena", p.titulo)
+        assertEquals(0.0, p.ritmoDiario, 0.001)
+        assertEquals(0.0, p.sobraProjetada, 0.001)
+        assertEquals(0.0, p.limiteDiario, 0.001)
+    }
 }

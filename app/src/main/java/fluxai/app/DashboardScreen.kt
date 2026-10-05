@@ -361,8 +361,8 @@ fun DashboardScreen(
         val metasComInvestido = caixinhasMetas.map { it.copy(saldo = it.saldo + (carteira.porMeta[it.id] ?: 0.0)) }
         reservaPendenteMetas(metasComInvestido, despesasRaw, mesAnoSelecionado)
     }
-    val previsao = remember(despesasRaw, sobraFinal, totalRenda, mostrarPrevisao, reservaMetas) {
-        if (mostrarPrevisao) calcularPrevisao(despesasRaw, sobraFinal, totalRenda, reservaMetas = reservaMetas) else null
+    val previsao = remember(despesasRaw, sobraFinal, totalRenda, mostrarPrevisao, reservaMetas, valPagamento) {
+        if (mostrarPrevisao) calcularPrevisao(despesasRaw, sobraFinal, totalRenda, reservaMetas = reservaMetas, salarioPreenchido = valPagamento > 0) else null
     }
     val alertasCategoria = remember(despesasRaw, limitesCategoria) { alertasOrcamento(despesasRaw, limitesCategoria) }
 
@@ -596,9 +596,12 @@ fun DashboardScreen(
                                             buildString {
                                                 appendLine("[PROJEÇÃO DO MÊS CORRENTE]")
                                                 appendLine("- Hoje é dia ${p.diaHoje} de ${p.diasNoMes}")
-                                                appendLine("- Ritmo de gasto variável: ${rs(p.ritmoDiario)}/dia")
-                                                appendLine("- Sobra projetada no fim do mês: ${rs(p.sobraProjetada)}")
-                                                appendLine("- Limite diário para não zerar a sobra: ${rs(p.limiteDiario)}")
+                                                if (p.semSalario) appendLine("- O salário da 2ª quinzena ainda não foi lançado: sem projeção do fim do mês")
+                                                else {
+                                                    appendLine("- Ritmo de gasto variável: ${rs(p.ritmoDiario)}/dia")
+                                                    appendLine("- Sobra projetada no fim do mês: ${rs(p.sobraProjetada)}")
+                                                    appendLine("- Limite diário para não zerar a sobra: ${rs(p.limiteDiario)}")
+                                                }
                                                 p.diaZera?.let { appendLine("- No ritmo atual, a sobra zera no dia $it") }
                                                 if (p.contasVencidas.isNotEmpty()) appendLine("- Contas vencidas sem pagamento: ${p.contasVencidas.size} (${rs(p.contasVencidas.sumOf { it.valor })})")
                                                 if (!p.projecaoConfiavel) appendLine("- Início do mês: projeção ainda instável")
@@ -1905,13 +1908,14 @@ data class PrevisaoFinanceira(
     val contasVencidas: List<Despesa>,
     val contasProximas: List<Despesa>, // vencem nos próximos 3 dias
     val projecaoConfiavel: Boolean, // no começo do mês a média ainda oscila muito
-    val reservaMetas: Double = 0.0  // já descontado da sobra e do limite diário
+    val reservaMetas: Double = 0.0, // já descontado da sobra e do limite diário
+    val semSalario: Boolean = false // 2ª quinzena sem salário lançado: não há o que projetar
 )
 
 private fun brl(v: Double) = "R$ %,.2f".format(Locale("pt", "BR"), v)
 
 // reservaMetas: quanto ainda falta guardar neste mês para as metas com prazo; sai da sobra disponível
-fun calcularPrevisao(despesas: List<Despesa>, sobraTotal: Double, totalRenda: Double, hoje: Calendar = Calendar.getInstance(), reservaMetas: Double = 0.0): PrevisaoFinanceira {
+fun calcularPrevisao(despesas: List<Despesa>, sobraTotal: Double, totalRenda: Double, hoje: Calendar = Calendar.getInstance(), reservaMetas: Double = 0.0, salarioPreenchido: Boolean = true): PrevisaoFinanceira {
     val sobraFinal = sobraTotal - reservaMetas
     val diaHoje = hoje.get(Calendar.DAY_OF_MONTH)
     val diasNoMes = hoje.getActualMaximum(Calendar.DAY_OF_MONTH)
@@ -1935,6 +1939,13 @@ fun calcularPrevisao(despesas: List<Despesa>, sobraTotal: Double, totalRenda: Do
     val vencidas = aPagar.filter { it.diaVencimento < diaHoje }.sortedBy { it.diaVencimento }
     val proximas = aPagar.filter { it.diaVencimento in diaHoje..(diaHoje + 3) }.sortedBy { it.diaVencimento }
     val margem = if (totalRenda > 0) sobraProjetada / totalRenda else 0.0
+
+    // Sem o salário da 2ª quinzena a sobra fica negativa só porque falta lançar a renda: não projeta nada
+    if (!salarioPreenchido) {
+        return PrevisaoFinanceira(NivelPrevisao.INFO, "Falta o salário da 2ª quinzena",
+            "Preencha o salário da 2ª quinzena para ver a projeção do fim do mês.",
+            diaHoje, diasNoMes, 0.0, 0.0, 0.0, null, vencidas, proximas, projecaoConfiavel = true, reservaMetas = reservaMetas, semSalario = true)
+    }
 
     val (nivel, titulo, mensagem) = when {
         sobraFinal <= 0 -> Triple(NivelPrevisao.RISCO, "Orçamento estourado",
