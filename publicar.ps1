@@ -61,4 +61,12 @@ $info = [ordered]@{
 $info | ConvertTo-Json | Set-Content -Encoding utf8NoBOM "site/versao.json"
 
 firebase deploy --only hosting
+
+# Pulso para os apps instalados: avisa que há versão nova (a function lê o versao.json recém publicado)
+try {
+    $resposta = Invoke-RestMethod "https://southamerica-east1-fluxai-adbdf.cloudfunctions.net/avisarNovaVersao"
+    Write-Host $resposta -ForegroundColor Green
+} catch {
+    Write-Host "Site publicado, mas o aviso aos apps falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+}
 Write-Host "Versão $tag publicada em https://fluxai-adbdf.web.app" -ForegroundColor Green

@@ -14,6 +14,10 @@ class ServicoMensageriaFirebase : FirebaseMessagingService() {
 
     // Chamado quando o Firebase gera/renova o token deste aparelho.
     // Hoje os avisos são enviados em massa pelo Painel, então não precisamos salvar o token.
+    companion object {
+        const val TOPICO_ATUALIZACAO = "atualizacao"
+    }
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
     }
@@ -21,6 +25,13 @@ class ServicoMensageriaFirebase : FirebaseMessagingService() {
     // Essa função é disparada na hora que a mensagem chega do servidor
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
+
+        // Pulso do site: nova versão publicada (mensagem só de dados, chega mesmo com o app fechado)
+        if (remoteMessage.data["tipo"] == "nova_versao") {
+            forcarNovaVerificacaoDeAtualizacao()
+            enviarNotificacaoPush("Nova versão do FluxAí", "A versão ${remoteMessage.data["nome"].orEmpty()} está disponível. Abra o app para atualizar.")
+            return
+        }
 
         // Pega o título e o texto que você vai digitar lá no Painel do Firebase
         val titulo = remoteMessage.notification?.title ?: "FluxAí"

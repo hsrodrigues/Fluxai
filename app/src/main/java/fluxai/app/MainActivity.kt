@@ -65,6 +65,11 @@ class MainActivity : FragmentActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
         }
 
+        // Recebe o aviso de nova versão publicada no site (só no build que se atualiza pelo site)
+        if (BuildConfig.AUTO_ATUALIZACAO) {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic(ServicoMensageriaFirebase.TOPICO_ATUALIZACAO)
+        }
+
         // 2. AGENDAMENTO NORMAL (A cada 24h)
         agendarAlertasVencimento()
         agendarRoboManutencao()

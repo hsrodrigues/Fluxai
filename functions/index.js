@@ -258,3 +258,32 @@ exports.historicoPrecos = onCall(
     return { historico: resultado };
   }
 );
+
+
+// Pulso de nova versão: o publicar.ps1 chama esta URL depois de publicar o site.
+// Lê o versao.json do site e, se for mais novo que o último aviso, manda um push ao tópico "atualizacao".
+// Pode ser chamada por qualquer um sem efeito extra: só avisa uma vez por versão.
+const { onRequest } = require("firebase-functions/v2/https");
+const { getMessaging } = require("firebase-admin/messaging");
+
+exports.avisarNovaVersao = onRequest(
+  { region: "southamerica-east1", memory: "256MiB", timeoutSeconds: 30 },
+  async (req, res) => {
+    const resp = await fetch(`https://fluxai-adbdf.web.app/versao.json?t=${Date.now()}`);
+    if (!resp.ok) { res.status(502).send("versao.json indisponível"); return; }
+    const { versao, nome } = await resp.json();
+    if (!versao) { res.status(502).send("versao.json inválido"); return; }
+
+    const ref = getFirestore().collection("config").doc("aviso_versao");
+    const ja = (await ref.get()).get("versao") || 0;
+    if (versao <= ja) { res.send(`Versão ${versao} já avisada`); return; }
+    await ref.set({ versao, em: FieldValue.serverTimestamp() });
+
+    await getMessaging().send({
+      topic: "atualizacao",
+      data: { tipo: "nova_versao", versao: String(versao), nome: String(nome || versao) },
+      android: { priority: "high" },
+    });
+    res.send(`Aviso enviado: versão ${versao}`);
+  }
+);

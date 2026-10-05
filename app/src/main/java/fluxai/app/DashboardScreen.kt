@@ -1682,6 +1682,9 @@ fun DashDespesaCard(
 
 // Evita consultar o GitHub de novo a cada volta ao dashboard
 private var atualizacaoVerificadaEm = 0L
+
+// Chamado quando chega o aviso de nova versão: a próxima vez que o Dashboard abrir confere na hora
+fun forcarNovaVerificacaoDeAtualizacao() { atualizacaoVerificadaEm = 0L }
 private const val INTERVALO_VERIFICAR_ATUALIZACAO_MS = 2 * 60 * 1000L // o GitHub aceita 60 consultas/hora sem login
 
 // === INJETADO COM RELEVO E ORGANIZAÇÃO PREMIUM: Câmbio e Mercado (AwesomeAPI) ===
