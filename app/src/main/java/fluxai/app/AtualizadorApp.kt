@@ -1,15 +1,8 @@
 package fluxai.app
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.net.Uri
-import android.os.Environment
 import android.widget.Toast
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.io.File
 
 // Última versão publicada no site do FluxAí (Firebase Hosting): versao.json + APK em /download
 // minima: versões abaixo dela ficam bloqueadas até atualizar
@@ -77,92 +69,16 @@ fun buscarUltimaVersao(): VersaoRemota? = if (!BuildConfig.AUTO_ATUALIZACAO) nul
     null
 }
 
-fun baixarEInstalarApk(context: Context, urlUrl: String, versaoNova: Long) {
+// Abre o link do APK no navegador (o mesmo do botão do site): ele baixa e pede a instalação.
+// O app não instala pacotes sozinho (sem REQUEST_INSTALL_PACKAGES), o que evita o bloqueio do Play Protect.
+fun baixarEInstalarApk(context: Context, urlApk: String, versaoNova: Long) {
     try {
-        val fileName = "Fluxai_Update.apk"
-        val destinationFile = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-            fileName
-        )
-
-        // Limpa o arquivo anterior se existir para não corromper
-        if (destinationFile.exists()) { destinationFile.delete() }
-
-        val request = DownloadManager.Request(urlUrl.toUri())
-            .setTitle("FluxAí v$versaoNova")
-            .setMimeType("application/vnd.android.package-archive")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationUri(Uri.fromFile(destinationFile))
-
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = dm.enqueue(request)
-
-        val onComplete = object : BroadcastReceiver() {
-            override fun onReceive(ctxt: Context, intent: Intent?) {
-                if (intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) == downloadId) {
-
-                    // --- O PONTO CRÍTICO ---
-                    // Deve ser EXATAMENTE ".fileprovider" para bater com seu Manifest
-                    val contentUri = FileProvider.getUriForFile(
-                        ctxt,
-                        "${ctxt.packageName}.fileprovider",
-                        destinationFile
-                    )
-
-                    val install = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(contentUri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    ctxt.startActivity(install)
-
-                    try { ctxt.unregisterReceiver(this) } catch (e: Exception) {}
-                }
-            }
-        }
-
-        ContextCompat.registerReceiver(
-            context,
-            onComplete,
-            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            ContextCompat.RECEIVER_EXPORTED
-        )
-
+        context.startActivity(Intent(Intent.ACTION_VIEW, urlApk.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (e: Exception) {
-        Toast.makeText(context, "Erro: ${e.message}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Não foi possível abrir o link: ${e.message}", Toast.LENGTH_LONG).show()
     }
 }
 
-private fun instalarApk(context: Context, apkFile: File) {
-    if (!apkFile.exists()) {
-        Toast.makeText(context, "Arquivo não encontrado!", Toast.LENGTH_SHORT).show()
-        return
-    }
-
-    // 1. Declaramos a URI aqui fora para que tanto o try quanto o catch possam usar
-    val contentUri: Uri
-
-    try {
-        // 2. Geramos a URI (Certifique-se de que termina em .provider como no seu Manifest)
-        // AGORA VAI BATER: .fileprovider com .fileprovider
-        val contentUri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            apkFile
-        )
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(contentUri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-
-    } catch (e: Exception) {
-        android.util.Log.e("FLUXAI_INSTALL", "Erro ao abrir instalador: ${e.message}")
-        Toast.makeText(context, "Falha ao abrir o instalador automático.", Toast.LENGTH_LONG).show()
-    }
-}
 // =========================================================================
 // ATUALIZAÇÃO OBRIGATÓRIA: versão abaixo da mínima publicada no site não abre o app.
 // Confere ao abrir e sempre que o app volta para a tela; sem internet, deixa usar.
@@ -217,11 +133,11 @@ fun TelaAtualizacaoObrigatoria(remota: VersaoRemota) {
             ) {
                 Icon(Icons.Default.Download, null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (baixando) "Baixando... toque para tentar de novo" else "Atualizar agora", fontWeight = FontWeight.Bold)
+                Text(if (baixando) "Abrindo o download... toque para tentar de novo" else "Atualizar agora", fontWeight = FontWeight.Bold)
             }
             if (baixando) {
                 Spacer(Modifier.height(12.dp))
-                Text("Acompanhe o download na barra de notificações.", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                Text("Quando o download terminar, toque no arquivo para instalar.", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
             }
         }
     }
